@@ -10,6 +10,7 @@ type RoomRepository interface {
 	FindByID(id uint) (*model.Room, error)
 	FindByUserID(userID uint) ([]*model.Room, error)
 	FindAll() ([]*model.Room, error) // ⭐ 추가: Redis 복원용
+	FindDirectRoomByUsers(userID1 uint, userID2 uint) (*model.Room, error) // ⭐ 추가: Direct 방 중복 확인
 	AddMember(roomID uint, userID uint) error
 	RemoveMember(roomID uint, userID uint) error
 	GetMembers(roomID uint) ([]*model.User, error)
@@ -92,4 +93,24 @@ func (r *roomRepository) GetMembers(roomID uint) ([]*model.User, error) {
 		return nil, err
 	}
 	return users, nil
+}
+
+// ⭐ FindDirectRoomByUsers - 두 사용자 간의 Direct 채팅방 찾기
+func (r *roomRepository) FindDirectRoomByUsers(userID1 uint, userID2 uint) (*model.Room, error) {
+	var room model.Room
+	
+	// Direct 타입이면서 두 사용자가 모두 멤버인 방 찾기
+	err := r.db.
+		Where("type = ?", model.RoomTypeDirect).
+		Joins("JOIN room_members rm1 ON rooms.id = rm1.room_id AND rm1.user_id = ?", userID1).
+		Joins("JOIN room_members rm2 ON rooms.id = rm2.room_id AND rm2.user_id = ?", userID2).
+		// 정확히 2명만 있는 방 확인
+		Where("rooms.id IN (SELECT room_id FROM room_members GROUP BY room_id HAVING COUNT(*) = 2)").
+		First(&room).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &room, nil
 }

@@ -46,7 +46,7 @@ func NewContainer() *Container {
 	fileRepo := repository.NewFileRepository(db)
 
 	authService := service.NewAuthService(userRepo, sessionRepo)
-	roomService := service.NewRoomService(roomRepo, rdb, publisher)
+	roomService := service.NewRoomService(roomRepo, messageRepo, userRepo, rdb, publisher)
 	messageService := service.NewMessageService(messageRepo, roomRepo, userRepo, publisher)
 	recoveryService := service.NewRedisRecoveryService(rdb, roomRepo)
 	userService := service.NewUserService(userRepo)
@@ -66,7 +66,7 @@ func NewContainer() *Container {
 
 	// 7. Handler
 	authHandler := handler.NewAuthHandler(authService)
-	roomHandler := handler.NewRoomHandler(roomService)
+	roomHandler := handler.NewRoomHandler(roomService, messageService) // ⭐ MessageService 추가
 	messageHandler := handler.NewMessageHandler(messageService, fileService)
 	fileHandler := handler.NewFileHandler(fileService) // ⭐ 추가: 파일 핸들러
 	userHandler := handler.NewUserHandler(userService) // ⭐ 추가: 사용자 핸들러

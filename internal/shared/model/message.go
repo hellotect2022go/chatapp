@@ -3,12 +3,13 @@ package model
 import "time"
 
 type Message struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	RoomID    uint      `gorm:"not null;index" json:"room_id"`
-	UserID    uint      `gorm:"not null;index" json:"user_id"`
-	Content   string    `gorm:"type:text;not null" json:"content"`
-	Type      string    `gorm:"type:varchar(20);not null" json:"type"` // text, image, file
-	CreatedAt time.Time `gorm:"autoCreateTime;index" json:"created_at"`
+	ID               uint        `gorm:"primaryKey" json:"id"`
+	RoomID           uint        `gorm:"not null;index" json:"room_id"`
+	UserID           uint        `gorm:"not null;index" json:"user_id"`
+	Content          string      `gorm:"type:text;not null" json:"content"`
+	Type             string      `gorm:"type:varchar(20);not null" json:"type"`                      // text, image, file (메시지 콘텐츠 타입)
+	MessageEventType MessageType `gorm:"type:varchar(20);not null;default:'chat'" json:"event_type"` // chat, join, leave (메시지 이벤트 타입)
+	CreatedAt        time.Time   `gorm:"autoCreateTime;index" json:"created_at"`
 
 	// 관계 Relationships N : 1
 	User  User   `gorm:"foreignKey:UserID" json:"user,omitempty"` // ⭐ JSON에 포함
@@ -40,7 +41,7 @@ const (
 )
 
 type WSMessage struct {
-	Type      MessageType `json:"type"`
+	Type      MessageType `json:"type"` // chat, join, leave, typing, read (이벤트 타입)
 	MessageID uint        `json:"message_id,omitempty"`
 	Content   string      `json:"content,omitempty"`
 	RoomID    uint        `json:"room_id,omitempty"`
@@ -48,7 +49,7 @@ type WSMessage struct {
 	Nickname  string      `json:"nickname,omitempty"`
 	Timestamp time.Time   `json:"timestamp"`
 
-	// ⭐ 추가: 이미지 메시지 지원
-	MessageType string `json:"message_type,omitempty"` // "text", "image", "file"
+	// ⭐ 메시지 콘텐츠 타입
+	ContentType string `json:"content_type,omitempty"` // "text", "image", "file"
 	Files       []File `json:"files,omitempty"`        // 첨부 파일 정보
 }

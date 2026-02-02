@@ -60,10 +60,11 @@ func (s *messageService) SendMessage(roomID uint, userID uint, req *dto.SendMess
 
 	// 메시지 저장
 	message := &model.Message{
-		RoomID:  roomID,
-		UserID:  userID,
-		Content: req.Content,
-		Type:    req.Type,
+		RoomID:           roomID,
+		UserID:           userID,
+		Content:          req.Content,
+		Type:             req.Type,
+		MessageEventType: "chat", // ⭐ 채팅 메시지
 	}
 
 	if err := s.messageRepository.Create(message); err != nil {
@@ -78,13 +79,14 @@ func (s *messageService) SendMessage(roomID uint, userID uint, req *dto.SendMess
 
 	// Redis Pub/Sub로 발행 (실시간 알림)
 	wsMsg := &model.WSMessage{
-		Type:      model.MessageTypeChat,
-		MessageID: message.ID,
-		RoomID:    message.RoomID,
-		UserID:    message.UserID,
-		Nickname:  user.Nickname,
-		Content:   message.Content,
-		Timestamp: message.CreatedAt,
+		Type:        model.MessageTypeChat,
+		MessageID:   message.ID,
+		RoomID:      message.RoomID,
+		UserID:      message.UserID,
+		Nickname:    user.Nickname,
+		Content:     message.Content,
+		ContentType: message.Type, // ⭐ text, image, file
+		Timestamp:   message.CreatedAt,
 	}
 
 	msgBytes, _ := json.Marshal(wsMsg)
@@ -116,8 +118,8 @@ func (s *messageService) PublishMessage(message *model.Message) error {
 		UserID:      message.UserID,
 		Nickname:    user.Nickname,
 		Content:     message.Content,
+		ContentType: message.Type, // ⭐ text, image, file
 		Timestamp:   message.CreatedAt,
-		MessageType: message.Type,
 		Files:       message.Files,
 	}
 

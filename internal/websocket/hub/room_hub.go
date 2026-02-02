@@ -79,8 +79,8 @@ func (h *RoomHub) handleJoin(req *JoinRequest) {
 	h.users[req.Client.UserID] = req.Client
 	req.Client.AddRoom(req.RoomID)
 
-	log.Printf("User %d joined room %d", req.Client.UserID, req.RoomID)
-	h.broadcastJoinLeaveEvent(req.RoomID, req.Client.UserID, req.Client.Nickname, "join")
+	log.Printf("User %d joined room %d (WebSocket connection)", req.Client.UserID, req.RoomID)
+	// ⭐ 자동 입장 메시지 제거: API에서 처리
 }
 
 func (h *RoomHub) handleLeave(req *LeaveRequest) {
@@ -89,11 +89,11 @@ func (h *RoomHub) handleLeave(req *LeaveRequest) {
 
 	if clients, ok := h.rooms[req.RoomID]; ok {
 		if _, ok := clients[req.Client]; ok {
-			h.broadcastJoinLeaveEvent(req.RoomID, req.Client.UserID, req.Client.Nickname, "leave")
+			// ⭐ 자동 퇴장 메시지 제거: API에서 처리
 			delete(clients, req.Client)
 			req.Client.RemoveRoom(req.RoomID)
 
-			log.Printf("User %d left room %d", req.Client.UserID, req.RoomID)
+			log.Printf("User %d left room %d (WebSocket disconnection)", req.Client.UserID, req.RoomID)
 
 			if len(clients) == 0 {
 				delete(h.rooms, req.RoomID)

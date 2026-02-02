@@ -10,12 +10,14 @@ import (
 )
 
 type RoomHandler struct {
-	roomService service.RoomService
+	roomService    service.RoomService
+	messageService service.MessageService
 }
 
-func NewRoomHandler(roomService service.RoomService) *RoomHandler {
+func NewRoomHandler(roomService service.RoomService, messageService service.MessageService) *RoomHandler {
 	return &RoomHandler{
-		roomService: roomService,
+		roomService:    roomService,
+		messageService: messageService,
 	}
 }
 
@@ -71,7 +73,8 @@ func (h *RoomHandler) GetRoom(c *gin.Context) {
 	c.JSON(200, room)
 }
 
-// POST /api/v1/rooms/:id/join - ⭐ 채팅방 입장 API
+// POST /api/v1/rooms/:id/join - ⭐ 채팅방 입장 API (실시간 알림만, 메시지 저장 안 함)
+// 이미 멤버인 사용자가 방을 선택할 때 호출 (선택 사항)
 func (h *RoomHandler) JoinRoom(c *gin.Context) {
 	roomID := c.Param("id")
 	userID, _ := c.Get("user_id")
@@ -83,6 +86,7 @@ func (h *RoomHandler) JoinRoom(c *gin.Context) {
 		return
 	}
 
+	// ⭐ WebSocket 실시간 알림만 (메시지 저장 안 함)
 	if err := h.roomService.JoinRoom(id, userID.(uint)); err != nil {
 		c.Error(err)
 		return
@@ -91,7 +95,7 @@ func (h *RoomHandler) JoinRoom(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "Joined room successfully"})
 }
 
-// DELETE /api/v1/rooms/:id/leave
+// DELETE /api/v1/rooms/:id/leave - ⭐ 채팅방 퇴장
 func (h *RoomHandler) LeaveRoom(c *gin.Context) {
 	roomID := c.Param("id")
 	userID, _ := c.Get("user_id")
@@ -99,12 +103,13 @@ func (h *RoomHandler) LeaveRoom(c *gin.Context) {
 	var id uint
 	_, err := fmt.Sscan(roomID, &id)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "Invalid room ID"})
+		c.Error(errors.BadRequest("Invalid room ID"))
 		return
 	}
 
+	// ⭐ 퇴장 처리 (DB에 퇴장 메시지 저장 + WebSocket 알림)
 	if err := h.roomService.LeaveRoom(id, userID.(uint)); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		c.Error(err)
 		return
 	}
 

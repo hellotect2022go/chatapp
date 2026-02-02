@@ -47,8 +47,8 @@ Go 언어 기반의 확장 가능한 실시간 채팅 시스템입니다. RESTfu
 ### 서버 분리 이유
 
 1. **관심사의 분리 (Separation of Concerns)**
-   - API Server: 비즈니스 로직, 데이터 영속성
-   - WebSocket Server: 실시간 통신, 연결 관리
+   - API Server: 비즈니스 로직, 데이터 영속성, 메시지 저장
+   - WebSocket Server: 실시간 통신, 연결 관리, 메시지 브로드캐스팅
 
 2. **독립적인 확장성 (Independent Scalability)**
    - 각 서버를 독립적으로 스케일 아웃 가능
@@ -57,6 +57,49 @@ Go 언어 기반의 확장 가능한 실시간 채팅 시스템입니다. RESTfu
 3. **장애 격리 (Fault Isolation)**
    - 한 서버의 장애가 다른 서버에 영향 최소화
    - 서비스 안정성 향상
+
+### 메시지 처리 흐름
+
+#### 채팅 메시지 (Chat Message)
+```
+1. 클라이언트 → API Server (POST /api/v1/rooms/:id/messages)
+2. API Server → PostgreSQL (메시지 저장, event_type: 'chat')
+3. API Server → Redis Pub/Sub (메시지 발행)
+4. Redis → WebSocket Server (구독)
+5. WebSocket Server → 연결된 클라이언트들 (브로드캐스트)
+```
+
+#### 방 생성 시 자동 입장 메시지
+```
+1. 클라이언트 → API Server (POST /api/v1/rooms)
+2. API Server → PostgreSQL (방 생성 + 모든 멤버의 입장 메시지 자동 저장)
+3. API Server → Redis Pub/Sub (입장 알림 발행)
+4. Redis → WebSocket Server (구독)
+5. WebSocket Server → 연결된 클라이언트들 (브로드캐스트)
+
+⭐ 방 생성 시 초대된 모든 멤버의 입장 메시지가 자동으로 생성됩니다.
+⭐ 이후 방을 다시 선택해도 입장 메시지가 중복 생성되지 않습니다.
+```
+
+#### 퇴장 메시지 (Leave Message)
+```
+1. 클라이언트 → API Server (DELETE /api/v1/rooms/:id/leave)
+2. API Server → PostgreSQL (퇴장 메시지 저장, event_type: 'leave')
+3. API Server → PostgreSQL (멤버 제거)
+4. API Server → Redis Pub/Sub (퇴장 알림 발행)
+5. Redis → WebSocket Server (구독)
+6. WebSocket Server → 연결된 클라이언트들 (브로드캐스트)
+```
+
+#### 타이핑 알림 (실시간만, DB 저장 안 함)
+```
+1. 클라이언트 → WebSocket Server (typing 이벤트)
+2. WebSocket Server → Redis Pub/Sub (발행)
+3. Redis → WebSocket Server (구독)
+4. WebSocket Server → 같은 방의 다른 클라이언트들 (브로드캐스트)
+
+⭐ 타이핑 알림은 DB에 저장되지 않고 실시간으로만 전달됩니다.
+```
 
 ## 🛠 기술 스택
 
@@ -188,12 +231,15 @@ chatapp/
 - 그룹 채팅 (Group Chat)
 - 채팅방 생성 / 참여 / 퇴장
 - 내 채팅방 목록 조회
+- **Direct 채팅방 중복 방지**: 동일한 두 사용자 간의 Direct 방은 하나만 존재 (중복 생성 시 기존 방으로 이동)
 
 ### 3. 실시간 메시지
 - WebSocket 기반 실시간 통신
-- 텍스트 메시지
-- 이미지 업로드 및 전송
-- 입장/퇴장 알림
+- 텍스트 메시지 (API에서 DB 저장)
+- 이미지 업로드 및 전송 (API에서 DB 저장)
+- **입장 메시지**: 방 생성 시 자동 생성 (최초 1회만, 중복 방지)
+- **퇴장 메시지**: 방 퇴장 시 생성 (API에서 DB 저장)
+- 타이핑 알림 (WebSocket에서 실시간 처리, DB 저장 안 함)
 - 읽음 표시
 
 ### 4. 파일 관리
@@ -305,10 +351,22 @@ API Server                 Redis                WebSocket Server
 ```
 
 **흐름:**
-1. API Server가 메시지를 DB에 저장
+1. API Server가 메시지/이벤트를 DB에 저장
 2. Redis Pub/Sub으로 메시지 발행
 3. WebSocket Server가 메시지 수신
 4. 연결된 클라이언트들에게 브로드캐스트
+
+**메시지 타입:**
+- **chat**: 채팅 메시지 (API에서 DB 저장 후 전달)
+- **join**: 입장 메시지 (방 생성 시 자동 생성, 최초 1회만)
+- **leave**: 퇴장 메시지 (API에서 DB 저장 후 전달)
+- **typing**: 타이핑 알림 (WebSocket에서 직접 처리, DB 저장 안 함)
+
+**중요 개념:**
+- `Message.type`: 콘텐츠 타입 (text, image, file)
+- `Message.event_type`: 이벤트 타입 (chat, join, leave)
+- 입장 메시지는 방 생성 시에만 자동 생성되어 중복 방지
+- Direct 채팅방은 동일 사용자 간 하나만 존재 (중복 생성 시 기존 방으로 이동)
 
 **장점:**
 - 서버 간 느슨한 결합
@@ -428,11 +486,11 @@ go run cmd/websocket/main.go
 - `POST /api/v1/auth/refresh` - 토큰 갱신
 
 #### 채팅방
-- `POST /api/v1/rooms` - 채팅방 생성
+- `POST /api/v1/rooms` - 채팅방 생성 (모든 멤버의 입장 메시지 자동 생성)
 - `GET /api/v1/rooms` - 내 채팅방 목록
 - `GET /api/v1/rooms/:id` - 채팅방 상세
-- `POST /api/v1/rooms/:id/join` - 채팅방 참여
-- `DELETE /api/v1/rooms/:id/leave` - 채팅방 퇴장
+- `POST /api/v1/rooms/:id/join` - 채팅방 입장 (실시간 알림만, 메시지 저장 안 함)
+- `DELETE /api/v1/rooms/:id/leave` - 채팅방 퇴장 (퇴장 메시지 DB 저장)
 
 #### 메시지
 - `POST /api/v1/rooms/:id/messages` - 메시지 전송
@@ -441,6 +499,82 @@ go run cmd/websocket/main.go
 
 #### WebSocket
 - `GET /ws` - WebSocket 연결
+
+## 🎯 주요 기능 상세
+
+### 1. Direct 채팅방 중복 방지
+
+동일한 두 사용자 간의 Direct 채팅방은 하나만 존재합니다.
+
+**동작 방식:**
+```
+사용자 A가 사용자 B와 채팅방 생성 시도
+→ DB 조회: A와 B 간의 Direct 방 존재 여부 확인
+→ 기존 방 있음: 기존 방 정보 반환 (새로 생성 안 함)
+→ 기존 방 없음: 새 Direct 방 생성
+```
+
+**구현 위치:**
+- `RoomRepository.FindDirectRoomByUsers()`: 두 사용자 간의 기존 Direct 방 검색
+- `RoomService.CreateRoom()`: 중복 확인 후 생성 또는 기존 방 반환
+
+### 2. 입장 메시지 자동 생성 (중복 방지)
+
+방 생성 시 모든 멤버의 입장 메시지가 자동으로 생성되며, 이후 방을 다시 선택해도 중복 생성되지 않습니다.
+
+**동작 방식:**
+```
+방 생성 (사용자 A, B, C 초대)
+→ DB: Room 생성
+→ DB: A, B, C를 멤버로 추가
+→ DB: "A님이 입장하셨습니다" 메시지 저장 (event_type: 'join')
+→ DB: "B님이 입장하셨습니다" 메시지 저장
+→ DB: "C님이 입장하셨습니다" 메시지 저장
+→ Redis Pub/Sub: 실시간 알림 발행
+→ WebSocket: 연결된 클라이언트들에게 브로드캐스트
+```
+
+**이후 방 선택 시:**
+```
+사용자 A가 기존 방 선택
+→ API: GET /messages (메시지만 로드)
+→ 입장 메시지 생성 안 함 ✅
+```
+
+**구현 위치:**
+- `RoomService.CreateRoom()`: 방 생성 시 모든 멤버의 입장 메시지 자동 생성
+- 클라이언트 `selectRoom()`: 방 선택 시 join API 호출하지 않음
+
+### 3. 메시지 타입 구분
+
+메시지는 두 가지 타입 필드로 구분됩니다:
+
+**Message.type** (콘텐츠 타입):
+- `text`: 텍스트 메시지
+- `image`: 이미지 메시지
+- `file`: 파일 메시지
+
+**Message.event_type** (이벤트 타입):
+- `chat`: 일반 채팅 메시지
+- `join`: 입장 메시지 (시스템 메시지로 표시)
+- `leave`: 퇴장 메시지 (시스템 메시지로 표시)
+
+**예시:**
+```json
+{
+  "id": 1,
+  "content": "안녕하세요",
+  "type": "text",           // 텍스트 콘텐츠
+  "event_type": "chat"      // 일반 채팅
+}
+
+{
+  "id": 2,
+  "content": "홍길동님이 입장하셨습니다",
+  "type": "text",           // 텍스트 콘텐츠
+  "event_type": "join"      // 입장 이벤트
+}
+```
 
 ## 📊 데이터베이스 스키마
 
@@ -490,10 +624,15 @@ CREATE TABLE messages (
     room_id INT NOT NULL,
     user_id INT NOT NULL,
     content TEXT NOT NULL,
-    type VARCHAR(20) NOT NULL, -- 'text', 'image', 'file'
+    type VARCHAR(20) NOT NULL,              -- 'text', 'image', 'file' (콘텐츠 타입)
+    message_event_type VARCHAR(20) NOT NULL DEFAULT 'chat', -- 'chat', 'join', 'leave' (이벤트 타입)
     created_at TIMESTAMP DEFAULT NOW()
 );
 ```
+
+**메시지 타입 구분:**
+- `type`: 메시지의 콘텐츠 타입 (text, image, file)
+- `message_event_type`: 메시지의 이벤트 타입 (chat, join, leave)
 
 ### Files (파일)
 ```sql

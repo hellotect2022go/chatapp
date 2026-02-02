@@ -30,6 +30,7 @@ func (s *redisRecoveryService) RecoverUserRoomFromDB() error {
 	ctx := context.Background()
 
 	log.Println("🔄 Starting Redis recovery from DB...")
+	s.rdb.FlushAll(ctx).Err()
 
 	// 1. 모든 방 조회
 	rooms, err := s.roomRepo.FindAll()

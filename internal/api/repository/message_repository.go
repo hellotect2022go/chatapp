@@ -20,13 +20,30 @@ func NewMessageRepository(db *gorm.DB) MessageRepository {
 }
 
 func (r *messageRepository) Create(message *model.Message) error {
-	panic("not implemented") // TODO: Implement
+	return r.db.Create(message).Error
 }
 
 func (r *messageRepository) FindByRoomID(roomID uint, limit int, offset int) ([]*model.Message, error) {
-	panic("not implemented") // TODO: Implement
+	var messages []*model.Message
+
+	err := r.db.
+		Preload("User", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id, nickname")
+		}).
+		Preload("Files").
+		Where("room_id = ?", roomID).
+		Order("created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&messages).Error
+
+	return messages, err
 }
 
 func (r *messageRepository) CountByRoomID(roomID uint) (int64, error) {
-	panic("not implemented") // TODO: Implement
+	var count int64
+	err := r.db.Model(&model.Message{}).
+		Where("room_id = ?", roomID).
+		Count(&count).Error
+	return count, err
 }

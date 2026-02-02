@@ -21,17 +21,24 @@ func NewFileRepository(db *gorm.DB) FileRepository {
 }
 
 func (r *fileRepository) Create(file *model.File) error {
-	panic("not implemented") // TODO: Implement
+	return r.db.Create(file).Error
 }
 
 func (r *fileRepository) FindByID(id uint) (*model.File, error) {
-	panic("not implemented") // TODO: Implement
+	var file model.File
+	err := r.db.First(&file, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &file, nil
 }
 
 func (r *fileRepository) FindByMessageID(messageID uint) ([]*model.File, error) {
-	panic("not implemented") // TODO: Implement
+	var files []*model.File
+	err := r.db.Where("message_id = ?", messageID).Find(&files).Error
+	return files, err
 }
 
 func (r *fileRepository) Delete(id uint) error {
-	panic("not implemented") // TODO: Implement
+	return r.db.Delete(&model.File{}, id).Error
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 
+	"github.com/google/uuid"
 	"github.com/hellotect2022go/chatapp/internal/api/dto"
 	"github.com/hellotect2022go/chatapp/internal/api/repository"
 	"github.com/hellotect2022go/chatapp/internal/shared/errors"
@@ -11,10 +12,10 @@ import (
 )
 
 type MessageService interface {
-	SendMessage(roomID, userID uint, req *dto.SendMessageRequest) (*model.Message, error)
+	SendMessage(roomID, userUID uuid.UUID, req *dto.SendMessageRequest) (*model.Message, error)
 	SaveMessage(message *model.Message) error
 	PublishMessage(message *model.Message) error // ⭐ 추가: Redis Pub/Sub 발행 전용
-	GetMessages(roomID uint, userID uint, page, pageSize int) (*dto.MessageListResponse, error)
+	GetMessages(roomID uuid.UUID, userUID uuid.UUID, page, pageSize int) (*dto.MessageListResponse, error)
 }
 
 type messageService struct {
@@ -39,7 +40,7 @@ func NewMessageService(
 }
 
 // ✅ 메시지 전송
-func (s *messageService) SendMessage(roomID uint, userID uint, req *dto.SendMessageRequest) (*model.Message, error) {
+func (s *messageService) SendMessage(roomID uuid.UUID, userUID uuid.UUID, req *dto.SendMessageRequest) (*model.Message, error) {
 	// 권한 확인: 해당 방의 멤버인지
 	members, err := s.roomRepository.GetMembers(roomID)
 	if err != nil {
@@ -48,7 +49,7 @@ func (s *messageService) SendMessage(roomID uint, userID uint, req *dto.SendMess
 
 	isMember := false
 	for _, member := range members {
-		if member.ID == userID {
+		if member.UID == userUID {
 			isMember = true
 			break
 		}
@@ -61,7 +62,7 @@ func (s *messageService) SendMessage(roomID uint, userID uint, req *dto.SendMess
 	// 메시지 저장
 	message := &model.Message{
 		RoomID:           roomID,
-		UserID:           userID,
+		UserUID:          userUID,
 		Content:          req.Content,
 		Type:             req.Type,
 		MessageEventType: "chat", // ⭐ 채팅 메시지
@@ -72,7 +73,7 @@ func (s *messageService) SendMessage(roomID uint, userID uint, req *dto.SendMess
 	}
 
 	// 사용자 정보 로드 (Nickname 포함)
-	user, err := s.userRepository.FindByID(userID)
+	user, err := s.userRepository.FindByUID(userUID)
 	if err != nil {
 		return nil, errors.WrapDatabase(err, "Failed to load user")
 	}
@@ -81,8 +82,8 @@ func (s *messageService) SendMessage(roomID uint, userID uint, req *dto.SendMess
 	wsMsg := &model.WSMessage{
 		Type:        model.MessageTypeChat,
 		MessageID:   message.ID,
-		RoomID:      message.RoomID,
-		UserID:      message.UserID,
+		RoomID:      roomID.String(),
+		UserUID:     userUID.String(),
 		Nickname:    user.Nickname,
 		Content:     message.Content,
 		ContentType: message.Type, // ⭐ text, image, file
@@ -90,7 +91,7 @@ func (s *messageService) SendMessage(roomID uint, userID uint, req *dto.SendMess
 	}
 
 	msgBytes, _ := json.Marshal(wsMsg)
-	s.publisher.Publish(roomID, msgBytes)
+	s.publisher.Publish(roomID.String(), msgBytes)
 
 	return message, nil
 }
@@ -105,7 +106,7 @@ func (s *messageService) SaveMessage(message *model.Message) error {
 // ⭐ Redis Pub/Sub으로 메시지 발행 (파일 정보 포함)
 func (s *messageService) PublishMessage(message *model.Message) error {
 	// 사용자 정보 로드 (Nickname 포함)
-	user, err := s.userRepository.FindByID(message.UserID)
+	user, err := s.userRepository.FindByUID(message.UserUID)
 	if err != nil {
 		return errors.WrapDatabase(err, "Failed to load user")
 	}
@@ -114,8 +115,8 @@ func (s *messageService) PublishMessage(message *model.Message) error {
 	wsMsg := &model.WSMessage{
 		Type:        model.MessageTypeChat,
 		MessageID:   message.ID,
-		RoomID:      message.RoomID,
-		UserID:      message.UserID,
+		RoomID:      message.RoomID.String(),
+		UserUID:     message.UserUID.String(),
 		Nickname:    user.Nickname,
 		Content:     message.Content,
 		ContentType: message.Type, // ⭐ text, image, file
@@ -128,11 +129,11 @@ func (s *messageService) PublishMessage(message *model.Message) error {
 		return errors.WrapInternal(err, "Failed to marshal message")
 	}
 
-	s.publisher.Publish(message.RoomID, msgBytes)
+	s.publisher.Publish(message.RoomID.String(), msgBytes)
 	return nil
 }
 
-func (s *messageService) GetMessages(roomID uint, userID uint, page, pageSize int) (*dto.MessageListResponse, error) {
+func (s *messageService) GetMessages(roomID uuid.UUID, userUID uuid.UUID, page, pageSize int) (*dto.MessageListResponse, error) {
 	// 권한 확인: 해당 방의 멤버인지
 	members, err := s.roomRepository.GetMembers(roomID)
 	if err != nil {
@@ -141,7 +142,7 @@ func (s *messageService) GetMessages(roomID uint, userID uint, page, pageSize in
 
 	isMember := false
 	for _, member := range members {
-		if member.ID == userID {
+		if member.UID == userUID {
 			isMember = true
 			break
 		}

@@ -68,8 +68,8 @@ func NewContainer() *Container {
 	authHandler := handler.NewAuthHandler(authService)
 	roomHandler := handler.NewRoomHandler(roomService, messageService) // ⭐ MessageService 추가
 	messageHandler := handler.NewMessageHandler(messageService, fileService)
-	fileHandler := handler.NewFileHandler(fileService) // ⭐ 추가: 파일 핸들러
-	userHandler := handler.NewUserHandler(userService) // ⭐ 추가: 사용자 핸들러
+	fileHandler := handler.NewFileHandler(fileService)              // ⭐ 추가: 파일 핸들러
+	userHandler := handler.NewUserHandler(userService, fileService) // ⭐ 추가: 사용자 핸들러 (FileService 주입)
 	recoveryHandler := handler.NewRedisRecoveryHandler(recoveryService)
 
 	return &Container{
@@ -134,7 +134,7 @@ func (c *Container) setupAuthRoutes(api *gin.RouterGroup) {
 
 func (c *Container) setupProtectedRoutes(api *gin.RouterGroup) {
 	protected := api.Group("")
-	protected.Use(middleware.AuthMiddleware())
+	//protected.Use(middleware.AuthMiddleware())
 	{
 		// 채팅방
 		rooms := protected.Group("/rooms")
@@ -155,17 +155,26 @@ func (c *Container) setupProtectedRoutes(api *gin.RouterGroup) {
 			files.GET("/:id", c.FileHandler.DownloadFile)
 		}
 
+		// 업로드
+		upload := protected.Group("/upload")
+		{
+			upload.POST("/image", c.FileHandler.UploadProfileImage)
+		}
+
 		// 사용자
 		users := protected.Group("/users")
 		{
+			users.GET("", c.UserHandler.GetUsersList)
 			users.GET("/recent", c.UserHandler.GetRecentUsers)
+			users.POST("/profile", c.UserHandler.CreateProfile)
+			users.PUT("/profile", c.UserHandler.UpdateProfile)
 		}
 	}
 }
 
 func (c *Container) setupAdminRoutes(api *gin.RouterGroup) {
 	admin := api.Group("/admin")
-	admin.Use(middleware.AuthMiddleware())
+	//admin.Use(middleware.AuthMiddleware())
 	{
 		redis := admin.Group("/redis")
 		{
@@ -176,13 +185,24 @@ func (c *Container) setupAdminRoutes(api *gin.RouterGroup) {
 }
 
 func migrateDB(db *gorm.DB) {
+	// ⭐ 마이그레이션 순서 중요: 참조되는 테이블을 먼저 생성
+
 	err := db.AutoMigrate(
-		&model.User{},
-		&model.Room{},
-		&model.RoomMember{},
-		&model.Message{},
-		&model.MessageRead{},
-		&model.File{},
+		&model.User{}, // 1. User (UID가 PK)
+		&model.File{}, // 2. File (ProfileImage가 참조)
+		&model.Room{}, // 4. Room (RoomID가 PK)
+	)
+
+	if err != nil {
+		logger.Fatal("Database migration failed", zap.Error(err))
+	}
+
+	err = db.AutoMigrate(
+		&model.ProfileImage{}, // 3. ProfileImage (User.UID와 File.ID 참조)
+		&model.RoomMember{},   // 5. RoomMember (User.UID와 Room.RoomID 참조)
+		&model.Message{},      // 6. Message (Room.RoomID와 User.UID 참조)
+		&model.MessageRead{},  // 7. MessageRead (Message.ID와 User.UID 참조)
+		&model.MessageFile{},  // 8. MessageFile (Message.ID와 File.ID 참조)
 	)
 
 	if err != nil {

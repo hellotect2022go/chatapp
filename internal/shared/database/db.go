@@ -32,7 +32,8 @@ func ConnectDB() *gorm.DB {
 		host, user, pass, name, port)
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: glogger.Default.LogMode(glogger.Info),
+		DisableForeignKeyConstraintWhenMigrating: true,
+		Logger:                                   glogger.Default.LogMode(glogger.Info),
 	})
 	if err != nil {
 		logger.Fatal("Failed to connect to database", zap.Error(err))

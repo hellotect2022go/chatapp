@@ -22,18 +22,18 @@ func NewPublisher(rdb *redis.Client) *Publisher {
 }
 
 // 채널명 생성
-func (p *Publisher) channelName(roomID uint) string {
-	return fmt.Sprintf("chat:room:%d", roomID)
+func (p *Publisher) channelName(roomID string) string {
+	return fmt.Sprintf("chat:room:%s", roomID) // ⭐ string 기반
 }
 
 // 1. 일반 메시지 발행
-func (p *Publisher) Publish(roomID uint, message []byte) error {
+func (p *Publisher) Publish(roomID string, message []byte) error {
 	channel := p.channelName(roomID)
 	return p.rdb.Publish(p.ctx, channel, message).Err()
 }
 
 // 2. WSMessage 구조체 발행
-func (p *Publisher) PublishMessage(roomID uint, msg *model.WSMessage) error {
+func (p *Publisher) PublishMessage(roomID string, msg *model.WSMessage) error {
 	msgBytes, err := json.Marshal(msg)
 	if err != nil {
 		return err

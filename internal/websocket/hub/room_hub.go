@@ -9,8 +9,8 @@ import (
 )
 
 type RoomHub struct {
-	rooms map[uint]map[*Client]bool // room_id -> clients
-	users map[uint]*Client          // user_id -> client
+	rooms map[string]map[*Client]bool // ⭐ room_id(string) -> clients
+	users map[string]*Client           // ⭐ user_uid(string) -> client
 
 	Join      chan *JoinRequest
 	Leave     chan *LeaveRequest
@@ -21,24 +21,24 @@ type RoomHub struct {
 }
 
 type JoinRequest struct {
-	RoomID uint
+	RoomID string // ⭐ uint → string
 	Client *Client
 }
 
 type LeaveRequest struct {
-	RoomID uint
+	RoomID string // ⭐ uint → string
 	Client *Client
 }
 
 type BroadcastMessage struct {
-	RoomID  uint
+	RoomID  string // ⭐ uint → string
 	Message []byte
 }
 
 func NewRoomHub() *RoomHub {
 	return &RoomHub{
-		rooms:     make(map[uint]map[*Client]bool),
-		users:     make(map[uint]*Client),
+		rooms:     make(map[string]map[*Client]bool),
+		users:     make(map[string]*Client),
 		Join:      make(chan *JoinRequest),
 		Leave:     make(chan *LeaveRequest),
 		Broadcast: make(chan *BroadcastMessage),
@@ -76,10 +76,10 @@ func (h *RoomHub) handleJoin(req *JoinRequest) {
 	}
 
 	h.rooms[req.RoomID][req.Client] = true
-	h.users[req.Client.UserID] = req.Client
+	h.users[req.Client.UserUID] = req.Client
 	req.Client.AddRoom(req.RoomID)
 
-	log.Printf("User %d joined room %d (WebSocket connection)", req.Client.UserID, req.RoomID)
+	log.Printf("User %s joined room %s (WebSocket connection)", req.Client.UserUID, req.RoomID)
 	// ⭐ 자동 입장 메시지 제거: API에서 처리
 }
 
@@ -93,7 +93,7 @@ func (h *RoomHub) handleLeave(req *LeaveRequest) {
 			delete(clients, req.Client)
 			req.Client.RemoveRoom(req.RoomID)
 
-			log.Printf("User %d left room %d (WebSocket disconnection)", req.Client.UserID, req.RoomID)
+			log.Printf("User %s left room %s (WebSocket disconnection)", req.Client.UserUID, req.RoomID)
 
 			if len(clients) == 0 {
 				delete(h.rooms, req.RoomID)
@@ -102,7 +102,7 @@ func (h *RoomHub) handleLeave(req *LeaveRequest) {
 	}
 }
 
-func (h *RoomHub) broadcastJoinLeaveEvent(roomID uint, userID uint, nickname string, eventType string) {
+func (h *RoomHub) broadcastJoinLeaveEvent(roomID string, userUID string, nickname string, eventType string) {
 	var content string
 	if eventType == "join" {
 		content = fmt.Sprintf("%s님이 입장했습니다.", nickname)
@@ -113,7 +113,7 @@ func (h *RoomHub) broadcastJoinLeaveEvent(roomID uint, userID uint, nickname str
 	event := map[string]interface{}{
 		"type":      eventType,
 		"room_id":   roomID,
-		"user_id":   userID,
+		"user_uid":  userUID,
 		"nickname":  nickname,
 		"content":   content,
 		"timestamp": time.Now(),
@@ -142,26 +142,26 @@ func (h *RoomHub) handleBroadcast(msg *BroadcastMessage) {
 			default:
 				close(client.Send)
 				delete(clients, client)
-				delete(h.users, client.UserID)
+				delete(h.users, client.UserUID)
 			}
 		}
 	}
 }
 
-// ⭐ 추가: UserID로 특정 방에 동적으로 참여시키기
-func (h *RoomHub) JoinUserToRoom(userID uint, roomID uint) bool {
+// ⭐ 추가: UserUID로 특정 방에 동적으로 참여시키기
+func (h *RoomHub) JoinUserToRoom(userUID string, roomID string) bool {
 	h.mu.RLock()
-	client, exists := h.users[userID]
+	client, exists := h.users[userUID]
 	h.mu.RUnlock()
 
 	if !exists {
-		log.Printf("User %d not connected, cannot join room %d", userID, roomID)
+		log.Printf("User %s not connected, cannot join room %s", userUID, roomID)
 		return false
 	}
 
 	// 이미 참여한 방인지 확인
 	if client.IsInRoom(roomID) {
-		log.Printf("User %d already in room %d", userID, roomID)
+		log.Printf("User %s already in room %s", userUID, roomID)
 		return false
 	}
 
@@ -171,14 +171,14 @@ func (h *RoomHub) JoinUserToRoom(userID uint, roomID uint) bool {
 		Client: client,
 	}
 
-	log.Printf("User %d dynamically joined room %d", userID, roomID)
+	log.Printf("User %s dynamically joined room %s", userUID, roomID)
 	return true
 }
 
-// ⭐ 추가: UserID로 특정 방에서 나가기
-func (h *RoomHub) RemoveUserFromRoom(userID uint, roomID uint) bool {
+// ⭐ 추가: UserUID로 특정 방에서 나가기
+func (h *RoomHub) RemoveUserFromRoom(userUID string, roomID string) bool {
 	h.mu.RLock()
-	client, exists := h.users[userID]
+	client, exists := h.users[userUID]
 	h.mu.RUnlock()
 
 	if !exists {
@@ -194,7 +194,7 @@ func (h *RoomHub) RemoveUserFromRoom(userID uint, roomID uint) bool {
 		Client: client,
 	}
 
-	log.Printf("User %d dynamically left room %d", userID, roomID)
+	log.Printf("User %s dynamically left room %s", userUID, roomID)
 	return true
 }
 
@@ -213,10 +213,10 @@ func (h *RoomHub) RemoveClient(client *Client) {
 		}
 	}
 
-	// UserID 매핑 제거
-	delete(h.users, client.UserID)
+	// UserUID 매핑 제거
+	delete(h.users, client.UserUID)
 
-	log.Printf("User %d completely removed from hub", client.UserID)
+	log.Printf("User %s completely removed from hub", client.UserUID)
 }
 
 // ⭐ Shutdown - RoomHub 종료
@@ -236,8 +236,8 @@ func (h *RoomHub) closeAllConnections() {
 		}
 	}
 
-	h.rooms = make(map[uint]map[*Client]bool)
-	h.users = make(map[uint]*Client)
+	h.rooms = make(map[string]map[*Client]bool)
+	h.users = make(map[string]*Client)
 
 	log.Println("All client connections closed")
 }

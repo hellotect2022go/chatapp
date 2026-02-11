@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -74,8 +73,8 @@ func (h *ConnectionHandler) HandleConnection(c *gin.Context) {
 		return
 	}
 
-	// 3. 클라이언트 생성
-	client := hub.NewClient(h.roomHub, conn, claims.UserID, claims.Nickname)
+	// 3. 클라이언트 생성 (UID 기반)
+	client := hub.NewClient(h.roomHub, conn, claims.UserUID, claims.Nickname)
 
 	// 4. Redis에서 사용자의 채팅방 목록 조회 (재연결 대응)
 	h.autoJoinRooms(client)
@@ -84,13 +83,13 @@ func (h *ConnectionHandler) HandleConnection(c *gin.Context) {
 	go h.handleClientWrite(client)
 	go h.handleClientRead(client)
 
-	log.Printf("User %d connected (nickname: %s)", client.UserID, client.Nickname)
+	log.Printf("User %s connected (nickname: %s)", client.UserUID, client.Nickname)
 }
 
 // autoJoinRooms - 사용자의 채팅방 자동 입장
 func (h *ConnectionHandler) autoJoinRooms(client *hub.Client) {
 	ctx := context.Background()
-	userRoomsKey := fmt.Sprintf("user:%d:rooms", client.UserID)
+	userRoomsKey := fmt.Sprintf("user:%s:rooms", client.UserUID) // ⭐ UID 기반 키
 
 	roomIDs, err := h.rdb.SMembers(ctx, userRoomsKey).Result()
 	if err != nil {
@@ -98,18 +97,12 @@ func (h *ConnectionHandler) autoJoinRooms(client *hub.Client) {
 		return
 	}
 
-	for _, roomIDStr := range roomIDs {
-		roomID, err := strconv.ParseUint(roomIDStr, 10, 64)
-		if err != nil {
-			log.Printf("Failed to parse room ID %s: %v", roomIDStr, err)
-			continue
-		}
-
+	for _, roomID := range roomIDs {
 		h.roomHub.Join <- &hub.JoinRequest{
-			RoomID: uint(roomID),
+			RoomID: roomID, // ⭐ 이미 string
 			Client: client,
 		}
-		log.Printf("User %d auto-joined room %d", client.UserID, uint(roomID))
+		log.Printf("User %s auto-joined room %s", client.UserUID, roomID)
 	}
 }
 
@@ -118,7 +111,7 @@ func (h *ConnectionHandler) handleClientRead(client *hub.Client) {
 	defer func() {
 		h.roomHub.RemoveClient(client)
 		client.Conn.Close()
-		log.Printf("User %d disconnected", client.UserID)
+		log.Printf("User %s disconnected", client.UserUID)
 	}()
 
 	// 타임아웃 설정
@@ -174,7 +167,7 @@ func (h *ConnectionHandler) handleMessage(client *hub.Client, message []byte) {
 
 // handleTypingNotification - 타이핑 알림 처리
 func (h *ConnectionHandler) handleTypingNotification(client *hub.Client, wsMsg *model.WSMessage) {
-	wsMsg.UserID = client.UserID
+	wsMsg.UserUID = client.UserUID // ⭐ UserID → UserUID
 	wsMsg.Nickname = client.Nickname
 	wsMsg.Timestamp = time.Now()
 

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 // 토큰 유효 기간 설정
@@ -16,7 +17,7 @@ const (
 var jwtSecret = []byte("your-secret-key-change-this-in-production")
 
 type Claims struct {
-	UserID   uint   `json:"user_id"`
+	UserUID  string `json:"user_uid"` // ⭐ JWT에서는 string으로 전송
 	Nickname string `json:"nickname"`
 	UserRole string `json:"user_role"`
 	jwt.RegisteredClaims
@@ -27,10 +28,10 @@ type TokenResponse struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-func GenerateToken(userID uint, nickname string, userRole string) (*TokenResponse, error) {
+func GenerateToken(userUID uuid.UUID, nickname string, userRole string) (*TokenResponse, error) {
 
 	claims := Claims{
-		UserID:   userID,
+		UserUID:  userUID.String(), // ⭐ UUID를 string으로 변환
 		Nickname: nickname,
 		UserRole: userRole,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -48,7 +49,7 @@ func GenerateToken(userID uint, nickname string, userRole string) (*TokenRespons
 	}
 	// refresh token 생성
 	refreshTokenClaims := Claims{
-		UserID:   userID, // <--- 이 부분이 핵심입니다!
+		UserUID:  userUID.String(),
 		UserRole: userRole,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(RefreshTokenDuration)),

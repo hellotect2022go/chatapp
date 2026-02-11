@@ -35,7 +35,7 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		fmt.Println(claims)
 
-		c.Set("user_id", claims.UserID)
+		c.Set("uid", claims.UserUID)      // ⭐ JWT에서 받은 string UID를 그대로 저장
 		c.Set("nickname", claims.Nickname)
 		c.Set("user_role", claims.UserRole)
 		c.Next()

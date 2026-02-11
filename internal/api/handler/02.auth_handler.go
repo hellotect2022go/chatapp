@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/hellotect2022go/chatapp/internal/api/dto"
 	"github.com/hellotect2022go/chatapp/internal/api/service"
 	"github.com/hellotect2022go/chatapp/internal/shared/errors"
@@ -69,14 +70,21 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	uidVal, exists := c.Get("uid")
 	if !exists {
 		c.Error(errors.Unauthorized("Authentication required"))
 		return
 	}
 
+	// string → uuid.UUID 변환
+	uid, err := uuid.Parse(uidVal.(string))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid UID format"})
+		return
+	}
+
 	// Service 호출
-	if err := h.authService.Logout(userID.(uint)); err != nil {
+	if err := h.authService.Logout(uid); err != nil {
 		c.Error(err)
 		return
 	}

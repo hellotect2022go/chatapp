@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/hellotect2022go/chatapp/internal/api/service"
 )
 
@@ -48,4 +49,50 @@ func (h *FileHandler) DownloadFile(c *gin.Context) {
 
 	// 파일 전송
 	c.File(file.FilePath)
+}
+
+// POST /api/v1/upload/image - 프로필 이미지 업로드
+func (h *FileHandler) UploadProfileImage(c *gin.Context) {
+	// 1. 파일 가져오기
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(400, gin.H{"error": "No file uploaded"})
+		return
+	}
+	defer file.Close()
+
+	// 2. UID 가져오기 (폼데이터에서)
+	uidStr := c.PostForm("userId")
+	if uidStr == "" {
+		c.JSON(400, gin.H{"error": "UID required"})
+		return
+	}
+
+	// 3. UID string을 uuid.UUID로 파싱
+	uid, err := uuid.Parse(uidStr)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid UID format"})
+		return
+	}
+
+	log.Printf("📸 프로필 이미지 업로드: uid=%s, filename=%s, size=%d",
+		uid.String(), header.Filename, header.Size)
+
+	// 4. 이미지 업로드 (uuid.UUID 전달)
+	uploadedFile, err := h.fileService.UploadImage(file, header, uid)
+	if err != nil {
+		log.Printf("❌ 이미지 업로드 실패: %v", err)
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	log.Printf("✅ 이미지 업로드 성공: %s", uploadedFile.FileURL)
+
+	// 5. 성공 응답
+	c.JSON(200, gin.H{
+		"success":  true,
+		"url":      uploadedFile.FileURL,
+		"imageUrl": uploadedFile.FileURL,
+		"file":     uploadedFile,
+	})
 }

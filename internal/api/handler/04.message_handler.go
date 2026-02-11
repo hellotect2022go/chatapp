@@ -1,11 +1,11 @@
 package handler
 
 import (
-	"fmt"
 	"log"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/hellotect2022go/chatapp/internal/api/dto"
 	"github.com/hellotect2022go/chatapp/internal/api/service"
 	"github.com/hellotect2022go/chatapp/internal/shared/model"
@@ -24,12 +24,24 @@ func NewMessageHandler(messageService service.MessageService, fileService servic
 }
 
 func (h *MessageHandler) SendMessage(c *gin.Context) {
-	roomID := c.Param("id")
-	userID, _ := c.Get("user_id")
+	roomIDStr := c.Param("id")
+	uidVal, exists := c.Get("uid")
+	if !exists {
+		c.JSON(401, gin.H{"error": "Unauthorized"})
+		return
+	}
 
-	var id uint
-	if _, err := fmt.Sscan(roomID, &id); err != nil {
+	// RoomID string → uuid.UUID
+	roomID, err := uuid.Parse(roomIDStr)
+	if err != nil {
 		c.JSON(400, gin.H{"error": "Invalid room ID"})
+		return
+	}
+
+	// UID string → uuid.UUID
+	userUID, err := uuid.Parse(uidVal.(string))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid UID format"})
 		return
 	}
 
@@ -39,7 +51,7 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	message, err := h.messageService.SendMessage(id, userID.(uint), &req)
+	message, err := h.messageService.SendMessage(roomID, userUID, &req)
 	if err != nil {
 		if err.Error() == "you are not a member of this room" {
 			c.JSON(403, gin.H{"error": err.Error()})
@@ -54,17 +66,28 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 
 // GET /api/v1/rooms/:id/messages - 메시지 조회
 func (h *MessageHandler) GetMessages(c *gin.Context) {
-	roomID := c.Param("id")
-	userID, _ := c.Get("user_id")
+	roomIDStr := c.Param("id")
+	uidVal, _ := c.Get("uid")
 
-	var id uint
-	fmt.Sscan(roomID, &id)
+	// RoomID string → uuid.UUID
+	roomID, err := uuid.Parse(roomIDStr)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid room ID"})
+		return
+	}
+
+	// UID string → uuid.UUID
+	userUID, err := uuid.Parse(uidVal.(string))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid UID format"})
+		return
+	}
 
 	// 쿼리 파라미터
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
-	result, err := h.messageService.GetMessages(id, userID.(uint), page, pageSize)
+	result, err := h.messageService.GetMessages(roomID, userUID, page, pageSize)
 	if err != nil {
 		c.JSON(403, gin.H{"error": err.Error()})
 		return
@@ -74,8 +97,27 @@ func (h *MessageHandler) GetMessages(c *gin.Context) {
 }
 
 func (h *MessageHandler) SendMessageWithImage(c *gin.Context) {
-	userID := c.GetUint("user_id")
-	roomID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	uidVal, exists := c.Get("uid")
+	if !exists {
+		c.JSON(401, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	roomIDStr := c.Param("id")
+
+	// RoomID string → uuid.UUID
+	roomID, err := uuid.Parse(roomIDStr)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid room ID"})
+		return
+	}
+
+	// UID string → uuid.UUID
+	userUID, err := uuid.Parse(uidVal.(string))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid UID format"})
+		return
+	}
 
 	// 1. 이미지 파일 가져오기
 	file, header, err := c.Request.FormFile("image")
@@ -94,8 +136,8 @@ func (h *MessageHandler) SendMessageWithImage(c *gin.Context) {
 
 	// 3. 메시지 생성 (Type: "image") - Redis Pub/Sub 발행 없이
 	message := &model.Message{
-		RoomID:  uint(roomID),
-		UserID:  userID,
+		RoomID:  roomID,
+		UserUID: userUID,
 		Content: content,
 		Type:    "image",
 	}
@@ -107,7 +149,7 @@ func (h *MessageHandler) SendMessageWithImage(c *gin.Context) {
 	}
 
 	// 4. 이미지 업로드 및 File 레코드 생성
-	fileModel, err := h.fileService.UploadImage(file, header, message.ID)
+	fileModel, err := h.fileService.UploadImage(file, header, userUID)
 	if err != nil {
 		log.Println("Failed to upload image", err)
 		c.JSON(500, gin.H{"error": "Failed to upload image"})

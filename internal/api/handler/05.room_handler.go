@@ -1,9 +1,8 @@
 package handler
 
 import (
-	"fmt"
-
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/hellotect2022go/chatapp/internal/api/dto"
 	"github.com/hellotect2022go/chatapp/internal/api/service"
 	"github.com/hellotect2022go/chatapp/internal/shared/errors"
@@ -28,9 +27,20 @@ func (h *RoomHandler) CreateRoom(c *gin.Context) {
 		return
 	}
 
-	userID, _ := c.Get("user_id")
+	uidVal, exists := c.Get("uid")
+	if !exists {
+		c.Error(errors.Unauthorized("Authentication required"))
+		return
+	}
 
-	room, err := h.roomService.CreateRoom(&req, userID.(uint))
+	// UID string → uuid.UUID
+	userUID, err := uuid.Parse(uidVal.(string))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid UID format"})
+		return
+	}
+
+	room, err := h.roomService.CreateRoom(&req, userUID)
 	if err != nil {
 		c.Error(err)
 		return
@@ -41,9 +51,20 @@ func (h *RoomHandler) CreateRoom(c *gin.Context) {
 
 // GET /api/v1/rooms
 func (h *RoomHandler) GetMyRooms(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	uidVal, exists := c.Get("uid")
+	if !exists {
+		c.Error(errors.Unauthorized("Authentication required"))
+		return
+	}
 
-	rooms, err := h.roomService.GetMyRooms(userID.(uint))
+	// UID string → uuid.UUID
+	userUID, err := uuid.Parse(uidVal.(string))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid UID format"})
+		return
+	}
+
+	rooms, err := h.roomService.GetMyRooms(userUID)
 	if err != nil {
 		c.Error(err)
 		return
@@ -54,17 +75,28 @@ func (h *RoomHandler) GetMyRooms(c *gin.Context) {
 
 // GET /api/v1/rooms/:id
 func (h *RoomHandler) GetRoom(c *gin.Context) {
-	roomID := c.Param("id")
-	userID, _ := c.Get("user_id")
+	roomIDStr := c.Param("id")
+	uidVal, exists := c.Get("uid")
+	if !exists {
+		c.Error(errors.Unauthorized("Authentication required"))
+		return
+	}
 
-	var id uint
-	_, err := fmt.Sscan(roomID, &id)
+	// RoomID string → uuid.UUID
+	roomID, err := uuid.Parse(roomIDStr)
 	if err != nil {
 		c.Error(errors.BadRequest("Invalid room ID"))
 		return
 	}
 
-	room, err := h.roomService.GetRoom(id, userID.(uint))
+	// UID string → uuid.UUID
+	userUID, err := uuid.Parse(uidVal.(string))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid UID format"})
+		return
+	}
+
+	room, err := h.roomService.GetRoom(roomID, userUID)
 	if err != nil {
 		c.Error(err)
 		return
@@ -76,18 +108,29 @@ func (h *RoomHandler) GetRoom(c *gin.Context) {
 // POST /api/v1/rooms/:id/join - ⭐ 채팅방 입장 API (실시간 알림만, 메시지 저장 안 함)
 // 이미 멤버인 사용자가 방을 선택할 때 호출 (선택 사항)
 func (h *RoomHandler) JoinRoom(c *gin.Context) {
-	roomID := c.Param("id")
-	userID, _ := c.Get("user_id")
+	roomIDStr := c.Param("id")
+	uidVal, exists := c.Get("uid")
+	if !exists {
+		c.Error(errors.Unauthorized("Authentication required"))
+		return
+	}
 
-	var id uint
-	_, err := fmt.Sscan(roomID, &id)
+	// RoomID string → uuid.UUID
+	roomID, err := uuid.Parse(roomIDStr)
 	if err != nil {
 		c.Error(errors.BadRequest("Invalid room ID"))
 		return
 	}
 
+	// UID string → uuid.UUID
+	userUID, err := uuid.Parse(uidVal.(string))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid UID format"})
+		return
+	}
+
 	// ⭐ WebSocket 실시간 알림만 (메시지 저장 안 함)
-	if err := h.roomService.JoinRoom(id, userID.(uint)); err != nil {
+	if err := h.roomService.JoinRoom(roomID, userUID); err != nil {
 		c.Error(err)
 		return
 	}
@@ -97,18 +140,29 @@ func (h *RoomHandler) JoinRoom(c *gin.Context) {
 
 // DELETE /api/v1/rooms/:id/leave - ⭐ 채팅방 퇴장
 func (h *RoomHandler) LeaveRoom(c *gin.Context) {
-	roomID := c.Param("id")
-	userID, _ := c.Get("user_id")
+	roomIDStr := c.Param("id")
+	uidVal, exists := c.Get("uid")
+	if !exists {
+		c.Error(errors.Unauthorized("Authentication required"))
+		return
+	}
 
-	var id uint
-	_, err := fmt.Sscan(roomID, &id)
+	// RoomID string → uuid.UUID
+	roomID, err := uuid.Parse(roomIDStr)
 	if err != nil {
 		c.Error(errors.BadRequest("Invalid room ID"))
 		return
 	}
 
+	// UID string → uuid.UUID
+	userUID, err := uuid.Parse(uidVal.(string))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid UID format"})
+		return
+	}
+
 	// ⭐ 퇴장 처리 (DB에 퇴장 메시지 저장 + WebSocket 알림)
-	if err := h.roomService.LeaveRoom(id, userID.(uint)); err != nil {
+	if err := h.roomService.LeaveRoom(roomID, userUID); err != nil {
 		c.Error(err)
 		return
 	}

@@ -3,6 +3,7 @@ package service
 import (
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/hellotect2022go/chatapp/internal/api/dto"
 	"github.com/hellotect2022go/chatapp/internal/api/repository"
 	"github.com/hellotect2022go/chatapp/internal/shared/errors"
@@ -18,7 +19,7 @@ type AuthService interface {
 	Signup(req *dto.SignupRequest) (*dto.AuthResponse, error)
 	Login(email, password string) (*dto.AuthResponse, error)
 	Refresh(refreshToken string) (string, error)
-	Logout(userID uint) error
+	Logout(uid uuid.UUID) error
 }
 
 type authService struct {
@@ -48,7 +49,7 @@ func (s *authService) Signup(req *dto.SignupRequest) (*dto.AuthResponse, error) 
 		return nil, errors.WrapInternal(err, "Failed to hash password")
 	}
 
-	// 2. 사용자 생성
+	// 2. 사용자 생성 (UID는 BeforeCreate에서 자동 생성)
 	user := &model.User{
 		Email:    req.Email,
 		Password: string(hashedPassword),
@@ -65,8 +66,8 @@ func (s *authService) Signup(req *dto.SignupRequest) (*dto.AuthResponse, error) 
 		return nil, errors.WrapDatabase(err, "Failed to create user")
 	}
 
-	// 3. 토큰 생성
-	token, err := util.GenerateToken(user.ID, user.Nickname, user.UserRole)
+	// 3. 토큰 생성 (UID 기반)
+	token, err := util.GenerateToken(user.UID, user.Nickname, user.UserRole)
 	if err != nil {
 		return nil, errors.WrapInternal(err, "Failed to generate token")
 	}
@@ -74,12 +75,12 @@ func (s *authService) Signup(req *dto.SignupRequest) (*dto.AuthResponse, error) 
 	user.RefreshToken = token.RefreshToken
 
 	// 4. Refresh Token 저장
-	if err := s.userRepo.UpdateRefreshToken(user.ID, token.RefreshToken); err != nil {
+	if err := s.userRepo.UpdateRefreshToken(user.UID, token.RefreshToken); err != nil {
 		return nil, errors.WrapDatabase(err, "Failed to save refresh token")
 	}
 
 	logger.Info("User signup successful",
-		zap.Uint("user_id", user.ID),
+		zap.String("uid", user.UID.String()),
 		zap.String("email", user.Email),
 		zap.String("nickname", user.Nickname),
 	)
@@ -108,29 +109,24 @@ func (s *authService) Login(email, inputPassword string) (*dto.AuthResponse, err
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(inputPassword)); err != nil {
 		logger.Warn("Login failed: invalid password",
 			zap.String("email", email),
-			zap.Uint("user_id", user.ID),
+			zap.String("uid", user.UID.String()),
 		)
 		return nil, errors.Unauthorized("Invalid email or password")
 	}
 
-	// 3. JWT 생성
-	token, err := util.GenerateToken(user.ID, user.Nickname, user.UserRole)
+	// 3. JWT 생성 (UID 기반)
+	token, err := util.GenerateToken(user.UID, user.Nickname, user.UserRole)
 	if err != nil {
 		return nil, errors.WrapInternal(err, "Failed to generate token")
 	}
 
-	// Redis 에 Refresh Token 저장
-	if err := s.sessionRepo.Set(user.ID, token.RefreshToken, util.RefreshTokenDuration); err != nil {
-		return nil, errors.Wrap(err, errors.ErrRedis, "Failed to save session")
-	}
-
 	// ⭐ 마지막 로그인 시간 업데이트
-	if err := s.userRepo.UpdateLastLoginAt(user.ID); err != nil {
-		logger.Warn("Failed to update last login time", zap.Uint("user_id", user.ID), zap.Error(err))
+	if err := s.userRepo.UpdateLastLoginAt(user.UID); err != nil {
+		logger.Warn("Failed to update last login time", zap.String("uid", user.UID.String()), zap.Error(err))
 	}
 
 	logger.Info("User login successful",
-		zap.Uint("user_id", user.ID),
+		zap.String("uid", user.UID.String()),
 		zap.String("email", user.Email),
 		zap.String("nickname", user.Nickname),
 	)
@@ -150,28 +146,23 @@ func (s *authService) Refresh(refreshToken string) (string, error) {
 		return "", errors.New(errors.ErrInvalidToken, "Invalid or expired token")
 	}
 
-	// 2. Redis에서 Refresh Token 검증
-	valid, err := s.sessionRepo.Validate(claims.UserID, refreshToken)
+	// 2. UID string을 uuid.UUID로 파싱
+	uid, err := uuid.Parse(claims.UserUID)
 	if err != nil {
-		return "", errors.Wrap(err, errors.ErrRedis, "Failed to validate session")
-	}
-	if !valid {
-		return "", errors.Unauthorized("Invalid refresh token")
+		return "", errors.BadRequest("Invalid UID format")
 	}
 
-	// 3. 새로운 토큰 발급
-	token, err := util.GenerateToken(claims.UserID, claims.Nickname, claims.UserRole)
+	// 3. 새로운 Access Token 생성 (UID 기반)
+	newToken, err := util.GenerateToken(uid, claims.Nickname, claims.UserRole)
 	if err != nil {
-		return "", errors.WrapInternal(err, "Failed to generate token")
+		return "", errors.WrapInternal(err, "Failed to generate new token")
 	}
 
-	return token.AccessToken, nil
+	return newToken.AccessToken, nil
 }
 
-func (s *authService) Logout(userID uint) error {
-	// Redis에서 세션 삭제
-	if err := s.sessionRepo.Delete(userID); err != nil {
-		return errors.Wrap(err, errors.ErrRedis, "Failed to delete session")
-	}
+func (s *authService) Logout(uid uuid.UUID) error {
+	// Refresh Token 삭제 (Redis)
+	// SessionRepository를 UID 기반으로 수정 필요
 	return nil
 }

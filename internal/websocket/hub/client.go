@@ -10,36 +10,36 @@ type Client struct {
 	Hub      *RoomHub
 	Conn     *ws.Conn
 	Send     chan []byte
-	UserID   uint
+	UserUID  string          // ⭐ uint → string
 	Nickname string
-	Rooms    map[uint]bool // 해당 클라이언트가 참여한 방의 목록들
+	Rooms    map[string]bool // ⭐ uint → string (roomID)
 	mu       sync.RWMutex
 }
 
-func NewClient(hub *RoomHub, conn *ws.Conn, userID uint, nickname string) *Client {
+func NewClient(hub *RoomHub, conn *ws.Conn, userUID string, nickname string) *Client {
 	return &Client{
 		Hub:      hub,
 		Conn:     conn,
 		Send:     make(chan []byte, 256),
-		UserID:   userID,
+		UserUID:  userUID,
 		Nickname: nickname,
-		Rooms:    make(map[uint]bool),
+		Rooms:    make(map[string]bool),
 	}
 }
 
-func (c *Client) IsInRoom(roomID uint) bool {
+func (c *Client) IsInRoom(roomID string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.Rooms[roomID]
 }
 
-func (c *Client) AddRoom(roomID uint) {
+func (c *Client) AddRoom(roomID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Rooms[roomID] = true
 }
 
-func (c *Client) RemoveRoom(roomID uint) {
+func (c *Client) RemoveRoom(roomID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.Rooms, roomID)

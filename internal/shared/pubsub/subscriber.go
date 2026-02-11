@@ -27,7 +27,7 @@ func NewSubscriber(rdb *redis.Client, roomHub *hub.RoomHub) *Subscriber {
 	}
 }
 
-// Redis 구독 시작 (기존 SubscribeAll과 동일)
+// Redis 구독 시작
 func (s *Subscriber) SubscribeAll() {
 	pubsub := s.rdb.PSubscribe(s.ctx, "chat:room:*", "room:event")
 	defer pubsub.Close()
@@ -38,11 +38,11 @@ func (s *Subscriber) SubscribeAll() {
 	for msg := range ch {
 		if strings.HasPrefix(msg.Channel, "chat:room:") {
 			// 채팅 메시지 처리
-			var roomID uint
-			fmt.Sscanf(msg.Channel, "chat:room:%d", &roomID)
+			// 채널 형식: chat:room:{roomID}
+			roomID := strings.TrimPrefix(msg.Channel, "chat:room:")
 
 			s.roomHub.Broadcast <- &hub.BroadcastMessage{
-				RoomID:  roomID,
+				RoomID:  roomID, // ⭐ 이미 string
 				Message: []byte(msg.Payload),
 			}
 
@@ -60,7 +60,7 @@ func (s *Subscriber) SubscribeAll() {
 	}
 }
 
-// 방 이벤트 핸들러 (기존 handleRoomEvent와 동일)
+// 방 이벤트 핸들러
 func (s *Subscriber) handleRoomEvent(event map[string]interface{}) {
 	eventType, ok := event["type"].(string)
 	if !ok {
@@ -70,33 +70,33 @@ func (s *Subscriber) handleRoomEvent(event map[string]interface{}) {
 
 	switch eventType {
 	case "room_created":
-		roomID := uint(event["room_id"].(float64))
+		roomID := event["room_id"].(string)                  // ⭐ string
 		members := event["members"].([]interface{})
 
 		for _, memberInterface := range members {
-			userID := uint(memberInterface.(float64))
-			s.roomHub.JoinUserToRoom(userID, roomID)
+			userUID := memberInterface.(string) // ⭐ string
+			s.roomHub.JoinUserToRoom(userUID, roomID)
 		}
 
 	case "member_added":
-		roomID := uint(event["room_id"].(float64))
-		userID := uint(event["user_id"].(float64))
-		s.roomHub.JoinUserToRoom(userID, roomID)
+		roomID := event["room_id"].(string)  // ⭐ string
+		userUID := event["user_uid"].(string) // ⭐ string
+		s.roomHub.JoinUserToRoom(userUID, roomID)
 
 	case "member_removed":
-		roomID := uint(event["room_id"].(float64))
-		userID := uint(event["user_id"].(float64))
-		s.roomHub.RemoveUserFromRoom(userID, roomID)
+		roomID := event["room_id"].(string)   // ⭐ string
+		userUID := event["user_uid"].(string) // ⭐ string
+		s.roomHub.RemoveUserFromRoom(userUID, roomID)
 
 	case "user_joined":
-		roomID := uint(event["room_id"].(float64))
-		userID := uint(event["user_id"].(float64))
+		roomID := event["room_id"].(string)   // ⭐ string
+		userUID := event["user_uid"].(string) // ⭐ string
 		nickname := event["nickname"].(string)
 
 		joinMsg := &model.WSMessage{
 			Type:      model.MessageTypeJoin,
 			RoomID:    roomID,
-			UserID:    userID,
+			UserUID:   userUID,
 			Nickname:  nickname,
 			Content:   fmt.Sprintf("%s님이 입장하셨습니다.", nickname),
 			Timestamp: time.Now(),

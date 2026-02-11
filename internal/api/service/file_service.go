@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"mime/multipart"
 
+	"github.com/google/uuid"
 	"github.com/hellotect2022go/chatapp/internal/api/repository"
 	"github.com/hellotect2022go/chatapp/internal/shared/errors"
 	"github.com/hellotect2022go/chatapp/internal/shared/model"
@@ -11,7 +12,7 @@ import (
 )
 
 type FileService interface {
-	UploadImage(file multipart.File, header *multipart.FileHeader, messageID uint) (*model.File, error)
+	UploadImage(file multipart.File, header *multipart.FileHeader, uid uuid.UUID) (*model.File, error)
 	GetFileURL(filepath string) string
 	GetFileByID(fileID uint) (*model.File, error)
 }
@@ -28,7 +29,7 @@ func NewFileService(fileRepo repository.FileRepository, baseURL string) FileServ
 	}
 }
 
-func (s *fileService) UploadImage(file multipart.File, header *multipart.FileHeader, messageID uint) (*model.File, error) {
+func (s *fileService) UploadImage(file multipart.File, header *multipart.FileHeader, uid uuid.UUID) (*model.File, error) {
 	// 1. 이미지 검증
 	mimeType, err := util.ValidateImage(file, header.Size)
 	if err != nil {
@@ -50,7 +51,7 @@ func (s *fileService) UploadImage(file multipart.File, header *multipart.FileHea
 
 	// 5. DB 저장
 	fileModel := &model.File{
-		MessageID:    messageID,
+		UID:          uid,
 		OriginalName: header.Filename,
 		StoredName:   safeFilename,
 		FilePath:     filepath,

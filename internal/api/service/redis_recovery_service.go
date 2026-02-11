@@ -48,14 +48,14 @@ func (s *redisRecoveryService) RecoverUserRoomFromDB() error {
 	// 3. 각 방의 멤버 정보를 Redis에 복원
 	for _, room := range rooms {
 		// 방의 멤버 조회
-		members, err := s.roomRepo.GetMembers(room.ID)
+		members, err := s.roomRepo.GetMembers(room.RoomID)
 		if err != nil {
-			log.Printf("⚠️ Failed to get members for room %d: %v", room.ID, err)
+			log.Printf("⚠️ Failed to get members for room %d: %v", room.RoomID, err)
 			continue
 		}
 
 		if len(members) == 0 {
-			log.Printf("⚠️ Room %d has no members, skipping", room.ID)
+			log.Printf("⚠️ Room %d has no members, skipping", room.RoomID)
 			continue
 		}
 
@@ -63,19 +63,19 @@ func (s *redisRecoveryService) RecoverUserRoomFromDB() error {
 
 		// room:X:members Set 생성
 		// 방별 : 참여자 정보 저장
-		roomMembersKey := fmt.Sprintf("room:%d:members", room.ID)
+		roomMembersKey := fmt.Sprintf("room:%d:members", room.RoomID)
 		for _, member := range members {
-			pipe.SAdd(ctx, roomMembersKey, member.ID)
+			pipe.SAdd(ctx, roomMembersKey, member.UID)
 		}
 
 		// user:X:rooms Set 생성
 		// 사용자별 참여한 방 정보 저장
 		for _, member := range members {
-			userRoomsKey := fmt.Sprintf("user:%d:rooms", member.ID)
-			pipe.SAdd(ctx, userRoomsKey, room.ID)
+			userRoomsKey := fmt.Sprintf("user:%d:rooms", member.UID)
+			pipe.SAdd(ctx, userRoomsKey, room.RoomID)
 		}
 
-		log.Printf("✅ Queued room %d (%s) with %d members", room.ID, room.Name, len(members))
+		log.Printf("✅ Queued room %d (%s) with %d members", room.RoomID, room.Name, len(members))
 	}
 
 	// 4. Pipeline 실행

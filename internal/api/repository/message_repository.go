@@ -1,14 +1,15 @@
 package repository
 
 import (
+	"github.com/google/uuid"
 	"github.com/hellotect2022go/chatapp/internal/shared/model"
 	"gorm.io/gorm"
 )
 
 type MessageRepository interface {
 	Create(message *model.Message) error
-	FindByRoomID(roomID uint, limit, offset int) ([]*model.Message, error)
-	CountByRoomID(roomID uint) (int64, error)
+	FindByRoomID(roomID uuid.UUID, limit, offset int) ([]*model.Message, error)
+	CountByRoomID(roomID uuid.UUID) (int64, error)
 }
 
 type messageRepository struct {
@@ -23,12 +24,12 @@ func (r *messageRepository) Create(message *model.Message) error {
 	return r.db.Create(message).Error
 }
 
-func (r *messageRepository) FindByRoomID(roomID uint, limit int, offset int) ([]*model.Message, error) {
+func (r *messageRepository) FindByRoomID(roomID uuid.UUID, limit int, offset int) ([]*model.Message, error) {
 	var messages []*model.Message
 
 	err := r.db.
 		Preload("User", func(db *gorm.DB) *gorm.DB {
-			return db.Select("id, nickname")
+			return db.Select("uid, nickname")
 		}).
 		Preload("Files").
 		Where("room_id = ?", roomID).
@@ -40,7 +41,7 @@ func (r *messageRepository) FindByRoomID(roomID uint, limit int, offset int) ([]
 	return messages, err
 }
 
-func (r *messageRepository) CountByRoomID(roomID uint) (int64, error) {
+func (r *messageRepository) CountByRoomID(roomID uuid.UUID) (int64, error) {
 	var count int64
 	err := r.db.Model(&model.Message{}).
 		Where("room_id = ?", roomID).

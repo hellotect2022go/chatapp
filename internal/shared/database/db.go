@@ -31,6 +31,7 @@ func ConnectDB() *gorm.DB {
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
 		host, user, pass, name, port)
 
+	// 서버를 최초 실행시에는 true 그 다음에는 false 로 전환
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
 		Logger:                                   glogger.Default.LogMode(glogger.Info),

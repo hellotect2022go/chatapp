@@ -188,16 +188,9 @@ func migrateDB(db *gorm.DB) {
 	// ⭐ 마이그레이션 순서 중요: 참조되는 테이블을 먼저 생성
 
 	err := db.AutoMigrate(
-		&model.User{}, // 1. User (UID가 PK)
-		&model.File{}, // 2. File (ProfileImage가 참조)
-		&model.Room{}, // 4. Room (RoomID가 PK)
-	)
-
-	if err != nil {
-		logger.Fatal("Database migration failed", zap.Error(err))
-	}
-
-	err = db.AutoMigrate(
+		&model.User{},         // 1. User (UID가 PK)
+		&model.File{},         // 2. File (ProfileImage가 참조)
+		&model.Room{},         // 4. Room (RoomID가 PK)
 		&model.ProfileImage{}, // 3. ProfileImage (User.UID와 File.ID 참조)
 		&model.RoomMember{},   // 5. RoomMember (User.UID와 Room.RoomID 참조)
 		&model.Message{},      // 6. Message (Room.RoomID와 User.UID 참조)
@@ -208,6 +201,11 @@ func migrateDB(db *gorm.DB) {
 	if err != nil {
 		logger.Fatal("Database migration failed", zap.Error(err))
 	}
+
+	// 2. 수동으로 외래키 제약 조건 추가
+	db.Migrator().CreateConstraint(&model.User{}, "ProfileImages")
+	db.Migrator().CreateConstraint(&model.ProfileImage{}, "User")
+	db.Migrator().CreateConstraint(&model.ProfileImage{}, "File")
 
 	logger.Info("Database migration completed")
 

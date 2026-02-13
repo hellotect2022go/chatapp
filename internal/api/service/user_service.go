@@ -5,7 +5,9 @@ import (
 	"github.com/hellotect2022go/chatapp/internal/api/dto"
 	"github.com/hellotect2022go/chatapp/internal/api/repository"
 	"github.com/hellotect2022go/chatapp/internal/shared/errors"
+	"github.com/hellotect2022go/chatapp/internal/shared/logger"
 	"github.com/hellotect2022go/chatapp/internal/shared/model"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -164,18 +166,44 @@ func (s *userService) CreateProfileByUID(req dto.CreateProfileRequest) error {
 	}
 
 	// 2. ProfileImage 처리
-	if req.ProfileImage != "" {
-		var file model.File
-		if err := s.userRepo.DB().Where("file_url = ?", req.ProfileImage).First(&file).Error; err == nil {
-			var existingProfileImage model.ProfileImage
-			notFound := s.userRepo.DB().Where("uid = ? AND is_primary = ?", uid, true).First(&existingProfileImage).Error == gorm.ErrRecordNotFound
+	if len(req.ProfileImages) > 0 {
+		// 혹시 해당 uid 랑 연계 되어있는 ProfileImage 전체 삭제
+		s.userRepo.DB().Where("uid = ?", uid).Delete(&model.ProfileImage{})
 
-			if notFound {
-				s.AddProfileImage(uid, file.ID, true)
-			} else if existingProfileImage.FileID != file.ID {
-				s.AddProfileImage(uid, file.ID, true)
+		// 각 url 에 대해 반복
+		for i, fileURL := range req.ProfileImages {
+			// File 테이블에서 File 찾기
+			var file model.File
+			if err := s.userRepo.DB().Where("file_url = ?", fileURL).First(&file).Error; err != nil {
+				logger.Error("", zap.Error(err))
+				continue
 			}
+
+			profileImage := model.ProfileImage{
+				UID:       uid,
+				FileID:    file.ID,
+				Order:     i,
+				IsPrimary: i == 0,
+			}
+
+			if err := s.userRepo.DB().Create(&profileImage).Error; err != nil {
+				// 에러 처리
+				return errors.WrapDatabase(err, "Failed to create profile image")
+			}
+
 		}
+
+		// var file model.File
+		// if err := s.userRepo.DB().Where("file_url = ?", req.ProfileImages).First(&file).Error; err == nil {
+		// 	var existingProfileImage model.ProfileImage
+		// 	notFound := s.userRepo.DB().Where("uid = ? AND is_primary = ?", uid, true).First(&existingProfileImage).Error == gorm.ErrRecordNotFound
+
+		// 	if notFound {
+		// 		s.AddProfileImage(uid, file.ID, true)
+		// 	} else if existingProfileImage.FileID != file.ID {
+		// 		s.AddProfileImage(uid, file.ID, true)
+		// 	}
+		// }
 	}
 
 	return nil

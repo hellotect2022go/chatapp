@@ -1,6 +1,8 @@
 package service
 
 import (
+	"log"
+
 	"github.com/google/uuid"
 	"github.com/hellotect2022go/chatapp/internal/api/dto"
 	"github.com/hellotect2022go/chatapp/internal/api/repository"
@@ -220,19 +222,11 @@ func (s *userService) UpdateProfile(uid uuid.UUID, req dto.UpdateProfileRequest)
 		return errors.WrapDatabase(err, "Failed to find user")
 	}
 
-	// 업데이트
-	if req.Nickname != "" {
-		user.Nickname = req.Nickname
-	}
-	if req.Age > 0 {
-		user.Age = req.Age
-	}
-	if req.Gender != "" {
-		user.Gender = req.Gender
-	}
-	if req.Region != "" {
-		user.Region = req.Region
-	}
+	// 2. User 기본 정보 업데이트
+	user.Nickname = req.Nickname
+	user.Age = req.Age
+	user.Gender = req.Gender
+	user.Region = req.Region
 	user.Bio = req.Bio
 	user.Avatar = req.Avatar
 
@@ -240,20 +234,86 @@ func (s *userService) UpdateProfile(uid uuid.UUID, req dto.UpdateProfileRequest)
 		return errors.WrapDatabase(err, "Failed to update user")
 	}
 
-	// ProfileImage 처리
-	if req.ProfileImage != "" {
-		var file model.File
-		if err := s.userRepo.DB().Where("file_url = ?", req.ProfileImage).First(&file).Error; err == nil {
-			var existingProfileImage model.ProfileImage
-			notFound := s.userRepo.DB().Where("uid = ? AND is_primary = ?", uid, true).First(&existingProfileImage).Error == gorm.ErrRecordNotFound
+	// 1. 삭제 요청이 들어온 이미지만 타켓팅 해서 삭제
+	if len(req.DeletedImages) > 0 {
+		// File URL 을 통해 관련 ProfileImage 삭제
+		// 1. 삭제할 FileID들을 서브쿼리로 정의
+		subQuery := s.userRepo.DB().Model(&model.File{}).
+			Select("id").
+			Where("file_url IN ?", req.DeletedImages)
 
-			if notFound {
-				s.AddProfileImage(uid, file.ID, true)
-			} else if existingProfileImage.FileID != file.ID {
-				s.AddProfileImage(uid, file.ID, true)
-			}
+		// 2. ProfileImage에서 해당 FileID를 가진 레코드 삭제
+		err := s.userRepo.DB().
+			Where("uid = ? AND file_id IN (?)", uid, subQuery).
+			Delete(&model.ProfileImage{}).Error
+
+		if err != nil {
+			return errors.WrapDatabase(err, "Failed to delete specific profile images")
 		}
 	}
+
+	// 2. 현재 요청된 순서대로 ProfileImage 상태 업데이트 또는 생성
+	for i, imageUrl := range req.ProfileImages {
+		var file model.File
+		if err := s.userRepo.DB().Where("file_url = ?", imageUrl).First(&file).Error; err != nil {
+			continue
+		}
+
+		// Upsert (있으면 업데이트, 없으면 생성)
+		// GORM의 Save나 Clauses(OnConflict)를 사용하거나,
+		// 단순하게는 기존에 있는지 체크 후 처리
+		profileImage := model.ProfileImage{
+			UID:    uid,
+			FileID: file.ID,
+		}
+
+		// Assign으로 변경될 값 설정
+		err := s.userRepo.DB().Where(profileImage).Assign(model.ProfileImage{
+			Order:     i,
+			IsPrimary: i == 0,
+		}).FirstOrCreate(&profileImage).Error
+
+		if err != nil {
+			return errors.WrapDatabase(err, "Failed to sync profile image")
+		}
+	}
+
+	// ⭐ 1. 삭제할 이미지가 있으면 먼저 처리
+	if len(req.DeletedImages) > 0 {
+		log.Printf("🗑️ 삭제 요청된 이미지: %v", req.DeletedImages)
+		if err := s.userRepo.DeleteProfileImagesByURLs(uid, req.DeletedImages); err != nil {
+			return errors.WrapDatabase(err, "Failed to delete images")
+		}
+	}
+	// // 3. ProfileImage 처리
+	// if len(req.ProfileImages) > 0 {
+	// 	// 기존 ProfileImage 모두 삭제
+	// 	if err := s.userRepo.DB().Where("uid = ?", uid).Delete(&model.ProfileImage{}).Error; err != nil {
+	// 		return errors.WrapDatabase(err, "Failed to delete old profile images")
+	// 	}
+
+	// 	// 새 ProfileImage 레코드 생성
+	// 	for i, imageUrl := range req.ProfileImages {
+	// 		var file model.File
+	// 		if err := s.userRepo.DB().Where("file_url = ?", imageUrl).First(&file).Error; err != nil {
+	// 			log.Printf("⚠️ File not found for URL: %s", imageUrl)
+	// 			continue
+	// 		}
+
+	// 		profileImage := model.ProfileImage{
+	// 			UID:       uid,
+	// 			FileID:    file.ID,
+	// 			Order:     i,
+	// 			IsPrimary: i == 0,
+	// 		}
+
+	// 		if err := s.userRepo.DB().Create(&profileImage).Error; err != nil {
+	// 			return errors.WrapDatabase(err, "Failed to create profile image")
+	// 		}
+	// 	}
+
+	// 	log.Printf("✅ ProfileImage 업데이트 완료: %d개", len(req.ProfileImages))
+	// }
 
 	return nil
 }

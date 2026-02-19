@@ -57,13 +57,15 @@ type CreateProfileRequest struct {
 
 // 프로필 수정 요청
 type UpdateProfileRequest struct {
-	Nickname     string `json:"nickname" binding:"omitempty,min=2,max=20"`
-	Age          int    `json:"age" binding:"omitempty,gte=19,lte=150"`
-	Gender       string `json:"gender" binding:"omitempty,oneof=male female other"`
-	Region       string `json:"region"`
-	Bio          string `json:"bio" binding:"max=500"`
-	Avatar       string `json:"avatar"`
-	ProfileImage string `json:"profileImage"`
+	Nickname      string   `json:"nickname" binding:"omitempty,min=2,max=20"`
+	Age           int      `json:"age" binding:"omitempty,gte=19,lte=150"`
+	Gender        string   `json:"gender" binding:"omitempty,oneof=male female other"`
+	Region        string   `json:"region"`
+	Bio           string   `json:"bio" binding:"max=500"`
+	Avatar        string   `json:"avatar"`
+	ProfileImages []string `json:"profileImages" binding:"omitempty"`
+	DeletedImages []string `json:"deletedImages" binding:"omitempty"` // ⭐ 추가
+	UID           string   `json:"uid"`
 }
 
 // 사용자 목록 필터

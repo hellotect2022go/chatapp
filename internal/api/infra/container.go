@@ -50,7 +50,7 @@ func NewContainer() *Container {
 	messageService := service.NewMessageService(messageRepo, roomRepo, userRepo, publisher)
 	recoveryService := service.NewRedisRecoveryService(rdb, roomRepo)
 	userService := service.NewUserService(userRepo)
-	fileService := service.NewFileService(fileRepo, "http://localhost:8888")
+	fileService := service.NewFileService(fileRepo, "http://192.168.10.218:8888")
 
 	healthy, err := recoveryService.CheckRedisHealth()
 	if err != nil {

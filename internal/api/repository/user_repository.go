@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,8 @@ type UserRepository interface {
 	FindRecentUsers(limit int) ([]*model.User, error)
 	FindAll() ([]*model.User, error)
 	FindUsersWithFilter(filter dto.UserListFilter) ([]*model.User, int64, error)
+	DeleteProfileImagesByURLs(uid uuid.UUID, imageUrls []string) error // ⭐ 추가
+
 	DB() *gorm.DB
 }
 
@@ -197,7 +200,24 @@ func (r *userRepository) FindUsersWithFilter(filter dto.UserListFilter) ([]*mode
 	return users, total, nil
 }
 
-// DB - GORM DB 인스턴스 반환
+// DeleteProfileImagesByURLs - 특정 이미지 URL들을 DB에서 삭제
+func (r *userRepository) DeleteProfileImagesByURLs(uid uuid.UUID, imageUrls []string) error {
+	if len(imageUrls) == 0 {
+		return nil
+	}
+
+	// 1. URL로 File ID 조회
+	var files []model.File
+	if err := r.db.Where("file_url IN ?", imageUrls).Delete(&files).Error; err != nil {
+		return err
+	}
+
+	log.Printf("✅ ProfileImage 삭제 완료: %d개 (UID: %s)", len(imageUrls), uid)
+
+	return nil
+}
+
+// DB - DB 인스턴스 반환 (service에서 사용)
 func (r *userRepository) DB() *gorm.DB {
 	return r.db
 }

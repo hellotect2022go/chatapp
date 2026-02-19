@@ -28,7 +28,7 @@ func ConnectDB() *gorm.DB {
 	port := os.Getenv("DB_PORT")
 
 	// 3. DSN 조립
-	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=Asia/Seoul",
 		host, user, pass, name, port)
 
 	// 서버를 최초 실행시에는 true 그 다음에는 false 로 전환

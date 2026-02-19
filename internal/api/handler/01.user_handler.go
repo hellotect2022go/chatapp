@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"log"
 	"strconv"
 
@@ -226,20 +227,23 @@ func (h *UserHandler) CreateProfile(c *gin.Context) {
 
 // PUT /api/v1/users/profile - 프로필 수정
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
+	var req dto.UpdateProfileRequest
+
 	// UID로 처리 (미들웨어에서 uid를 설정하거나, 요청에서 받음)
 	uidVal, exists := c.Get("uid")
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fmt.Println(err)
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
 	if !exists {
 		// 미들웨어에 uid가 없으면 요청 body에서 가져옴
-		var tempReq struct {
-			UID string `json:"uid"`
-		}
-		if err := c.ShouldBindJSON(&tempReq); err == nil && tempReq.UID != "" {
-			uidVal = tempReq.UID
-		} else {
-			c.JSON(401, gin.H{"error": "UID required"})
-			return
-		}
+		uidVal = req.UID
 	}
+
+	fmt.Println("uid : ", uidVal)
 
 	uidStr, ok := uidVal.(string)
 	if !ok {
@@ -249,12 +253,6 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	uid, err := uuid.Parse(uidStr)
 	if err != nil {
 		c.JSON(400, gin.H{"error": "Invalid uid format"})
-		return
-	}
-
-	var req dto.UpdateProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 

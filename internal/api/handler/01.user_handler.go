@@ -206,23 +206,22 @@ func (h *UserHandler) CreateProfile(c *gin.Context) {
 	}
 
 	// 5. UID로 사용자 생성 (인증 없이 바로 프로필 생성 가능)
-	if err := h.userService.CreateProfileByUID(req); err != nil {
+	response, err := h.userService.CreateProfileByUID(req)
+	if err != nil {
 		log.Printf("❌ 프로필 생성 실패: %v", err)
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 6. 생성된 사용자 정보 반환
-	uid, _ := uuid.Parse(req.UID)
-	user, _ := h.userService.GetByUID(uid)
+	c.JSON(200, response)
 
-	log.Printf("✅ 프로필 생성 완료: uid=%s", user.UID.String())
-
-	c.JSON(200, gin.H{
-		"success": true,
-		"user":    user,
-		"message": "Profile created successfully",
-	})
+	// c.JSON(200, gin.H{
+	// 	"success":       true,
+	// 	"access_token":  token.AccessToken,
+	// 	"refresh_token": token.RefreshToken,
+	// 	"user":          user,
+	// 	"message":       "Profile created successfully",
+	// })
 }
 
 // PUT /api/v1/users/profile - 프로필 수정

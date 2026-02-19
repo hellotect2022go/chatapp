@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/google/uuid"
@@ -9,6 +10,7 @@ import (
 	"github.com/hellotect2022go/chatapp/internal/shared/errors"
 	"github.com/hellotect2022go/chatapp/internal/shared/logger"
 	"github.com/hellotect2022go/chatapp/internal/shared/model"
+	"github.com/hellotect2022go/chatapp/internal/shared/util"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -21,7 +23,7 @@ type UserService interface {
 	ChangePassword(uid uuid.UUID, newPassword string) error
 	GetAll() ([]*model.User, error)
 	GetRecentUsers(limit int) ([]*model.User, error)
-	CreateProfileByUID(req dto.CreateProfileRequest) error
+	CreateProfileByUID(req dto.CreateProfileRequest) (*dto.AuthResponse, error)
 	UpdateProfile(uid uuid.UUID, req dto.UpdateProfileRequest) error
 	GetUsersWithFilter(filter dto.UserListFilter) (*dto.UserListResponse, error)
 	AddProfileImage(uid uuid.UUID, fileID uint, isPrimary bool) error
@@ -121,49 +123,57 @@ func (s *userService) GetRecentUsers(limit int) ([]*model.User, error) {
 }
 
 // CreateProfileByUID - UID로 프로필 생성 또는 업데이트
-func (s *userService) CreateProfileByUID(req dto.CreateProfileRequest) error {
+func (s *userService) CreateProfileByUID(req dto.CreateProfileRequest) (*dto.AuthResponse, error) {
 	// UID string을 uuid.UUID로 파싱
 	uid, err := uuid.Parse(req.UID)
 	if err != nil {
-		return errors.BadRequest("Invalid UID format")
+		return nil, errors.BadRequest("Invalid UID format")
 	}
 
 	// 1. User 찾기 또는 생성
 	user, err := s.userRepo.FindByUID(uid)
 
+	// 3. ⭐ JWT 토큰 생성
+	token, err := util.GenerateToken(user.UID, user.Nickname, user.UserRole)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to generate token")
+	}
+
 	if err == gorm.ErrRecordNotFound {
 		// User 없으면 생성
 		newUser := &model.User{
 			UID:          uid,
-			RefreshToken: req.RefreshToken,
+			RefreshToken: token.RefreshToken,
 			Email:        req.UID + "@temp.com",
 			Password:     "temp_password",
-			UserRole:     "user",
 			Nickname:     req.Nickname,
 			Age:          req.Age,
 			Gender:       req.Gender,
 			Region:       req.Region,
 			Bio:          req.Bio,
 			Avatar:       req.Avatar,
+			IsCompleted:  true,
 		}
 
 		if err := s.userRepo.Create(newUser); err != nil {
-			return errors.WrapDatabase(err, "Failed to create user")
+			return nil, errors.WrapDatabase(err, "Failed to create user")
 		}
 		user = newUser
 	} else if err != nil {
-		return errors.WrapDatabase(err, "Failed to find user")
+		return nil, errors.WrapDatabase(err, "Failed to find user")
 	} else {
-		// User 있으면 업데이트
-		user.RefreshToken = req.RefreshToken
+		// User 있으면 업데이트 (FirebaseAuth에서 생성된 유저 프로필 완료)
 		user.Nickname = req.Nickname
+		user.RefreshToken = token.RefreshToken
 		user.Age = req.Age
 		user.Gender = req.Gender
 		user.Region = req.Region
 		user.Bio = req.Bio
 		user.Avatar = req.Avatar
+		user.IsCompleted = true
+
 		if err := s.userRepo.Update(user); err != nil {
-			return errors.WrapDatabase(err, "Failed to update user")
+			return nil, errors.WrapDatabase(err, "Failed to update user")
 		}
 	}
 
@@ -190,25 +200,18 @@ func (s *userService) CreateProfileByUID(req dto.CreateProfileRequest) error {
 
 			if err := s.userRepo.DB().Create(&profileImage).Error; err != nil {
 				// 에러 처리
-				return errors.WrapDatabase(err, "Failed to create profile image")
+				return nil, errors.WrapDatabase(err, "Failed to create profile image")
 			}
 
 		}
-
-		// var file model.File
-		// if err := s.userRepo.DB().Where("file_url = ?", req.ProfileImages).First(&file).Error; err == nil {
-		// 	var existingProfileImage model.ProfileImage
-		// 	notFound := s.userRepo.DB().Where("uid = ? AND is_primary = ?", uid, true).First(&existingProfileImage).Error == gorm.ErrRecordNotFound
-
-		// 	if notFound {
-		// 		s.AddProfileImage(uid, file.ID, true)
-		// 	} else if existingProfileImage.FileID != file.ID {
-		// 		s.AddProfileImage(uid, file.ID, true)
-		// 	}
-		// }
 	}
 
-	return nil
+	return &dto.AuthResponse{
+		User:            *user,
+		AccessToken:     token.AccessToken,
+		RefreshToken:    token.RefreshToken,
+		ProfileComplete: true, // 클라이언트는 메인 화면으로 이동
+	}, nil
 }
 
 // UpdateProfile - 프로필 수정

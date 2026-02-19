@@ -10,7 +10,7 @@ import (
 
 // 토큰 유효 기간 설정
 const (
-	AccessTokenDuration  = 15 * time.Hour     // 짧게 설정 (보안)
+	AccessTokenDuration  = 900 * time.Hour    // 짧게 설정 (보안)
 	RefreshTokenDuration = 7 * 24 * time.Hour // 길게 설정 (편의)
 )
 

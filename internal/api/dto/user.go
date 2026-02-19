@@ -37,9 +37,16 @@ type RefreshTokenResponse struct {
 }
 
 type AuthResponse struct {
-	AccessToken  string     `json:"access_token"`
-	RefreshToken string     `json:"refresh_token"`
-	User         model.User `json:"user"`
+	AccessToken     string     `json:"access_token"`
+	RefreshToken    string     `json:"refresh_token"`
+	User            model.User `json:"user"`
+	ProfileComplete bool       `json:"profile_complete"`
+}
+
+// ⭐ Firebase 인증 요청
+type FirebaseAuthRequest struct {
+	FirebaseUid  string `json:"firebase_uid" binding:"required"`
+	RefreshToken string `json:"refresh_token"` // Firebase RefreshToken (선택)
 }
 
 // 프로필 생성 요청

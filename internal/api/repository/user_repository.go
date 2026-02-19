@@ -17,6 +17,7 @@ import (
 type UserRepository interface {
 	userCacheKey(uid uuid.UUID) string
 	Create(user *model.User) error
+	FindByFirebaseUID(firebase_uid string) (*model.User, error)
 	FindByUID(uid uuid.UUID) (*model.User, error)
 	FindByEmail(email string) (*model.User, error)
 	Update(user *model.User) error
@@ -73,6 +74,20 @@ func (r *userRepository) FindByUID(uid uuid.UUID) (*model.User, error) {
 	// 3. Redis 캐시 저장 (10분 TTL)
 	data, _ := json.Marshal(user)
 	r.rdb.Set(r.ctx, cacheKey, data, 10*time.Minute)
+
+	return &user, nil
+}
+
+func (r *userRepository) FindByFirebaseUID(firebase_uid string) (*model.User, error) {
+	// 2. DB 조회
+	var user model.User
+	result := r.db.
+		Preload("ProfileImages.File").
+		Where("firebase_uid = ?", firebase_uid).
+		First(&user)
+	if result.Error != nil {
+		return nil, result.Error
+	}
 
 	return &user, nil
 }

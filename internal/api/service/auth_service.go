@@ -1,8 +1,6 @@
 package service
 
 import (
-	"strings"
-
 	"github.com/google/uuid"
 	"github.com/hellotect2022go/chatapp/internal/api/dto"
 	"github.com/hellotect2022go/chatapp/internal/api/repository"
@@ -11,13 +9,16 @@ import (
 	"github.com/hellotect2022go/chatapp/internal/shared/model"
 	"github.com/hellotect2022go/chatapp/internal/shared/util"
 	"go.uber.org/zap"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
 type AuthService interface {
-	Signup(req *dto.SignupRequest) (*dto.AuthResponse, error)
-	Login(email, password string) (*dto.AuthResponse, error)
+	// ===== 기존 메서드 (백업용 주석) =====
+	// Signup(req *dto.SignupRequest) (*dto.AuthResponse, error)
+	// Login(email, password string) (*dto.AuthResponse, error)
+
+	// ⭐ Firebase 인증 가정
+	FirebaseAuth(firebase_uid, firebaseRefreshToken string) (*dto.AuthResponse, error)
 	Refresh(refreshToken string) (string, error)
 	Logout(uid uuid.UUID) error
 }
@@ -37,6 +38,8 @@ func NewAuthService(
 	}
 }
 
+// ===== 기존 코드 (백업용 주석 처리) =====
+/*
 func (s *authService) Signup(req *dto.SignupRequest) (*dto.AuthResponse, error) {
 	logger.Info("User signup attempt",
 		zap.String("email", req.Email),
@@ -138,6 +141,106 @@ func (s *authService) Login(email, inputPassword string) (*dto.AuthResponse, err
 		User:         *user,
 	}, nil
 }
+*/
+
+// ⭐ FirebaseAuth - Firebase 인증된 사용자로 토큰 발급
+func (s *authService) FirebaseAuth(firebase_uid, firebaseRefreshToken string) (*dto.AuthResponse, error) {
+	logger.Info("Firebase auth attempt", zap.String("firebase_uid", firebase_uid))
+
+	//1. 사용자 조회 (UID 기반)
+	user, err := s.userRepo.FindByFirebaseUID(firebase_uid)
+
+	// CASE A : 신규사용자 (DB 에 기록 없음)
+	if err != nil {
+		if err != gorm.ErrRecordNotFound {
+			return nil, errors.WrapDatabase(err, "Failed to find user")
+		}
+
+		newUser := &model.User{
+			FirebaseUid: firebase_uid,
+			IsCompleted: false,
+		}
+
+		if err := s.userRepo.Create(newUser); err != nil {
+			return nil, errors.WrapDatabase(err, "Failed to create user")
+		}
+		// 새 유저 정보만 반환 (프로필 미완료 → 클라이언트는 프로필 등록 화면)
+		return &dto.AuthResponse{
+			User:            *newUser,
+			ProfileComplete: false,
+		}, nil
+	}
+
+	// CASE B : 기존 사용자지만 프로필 미완성 (닉네임 없음) → 프로필 등록 화면
+	if !user.IsCompleted {
+		return &dto.AuthResponse{
+			User:            *user,
+			ProfileComplete: false,
+		}, nil
+	}
+
+	// 닉네임 있으면 완료로 간주 (레거시 또는 IsCompleted 미반영 보정)
+	if !user.IsCompleted && user.Nickname != "" {
+		user.IsCompleted = true
+		_ = s.userRepo.Update(user)
+	}
+
+	// CASE C : 프로필 완성된 사용자 -> 토큰 발급
+	token, err := util.GenerateToken(user.UID, user.Nickname, user.UserRole)
+	if err != nil {
+		return nil, errors.WrapInternal(err, "Failed to generate token")
+	}
+
+	// DB 에 RefreshToken 저장 (필요시)
+	user.RefreshToken = token.RefreshToken
+	s.userRepo.Update(user)
+
+	return &dto.AuthResponse{
+		User:            *user,
+		AccessToken:     token.AccessToken,
+		RefreshToken:    token.RefreshToken,
+		ProfileComplete: true, // 클라이언트는 메인 화면으로 이동
+	}, nil
+
+}
+
+// ⭐ FirebaseAuth - Firebase 인증된 사용자로 토큰 발급
+// func (s *authService) FirebaseAuth(uid uuid.UUID, firebaseRefreshToken string) (*dto.AuthResponse, error) {
+// 	logger.Info("Firebase auth attempt", zap.String("uid", uid.String()))
+
+// 	//1. 사용자 조회 (UID 기반)
+// 	user, err := s.userRepo.FindByUID(uid)
+// 	if err != nil {
+// 		if err == gorm.ErrRecordNotFound {
+// 			logger.Warn("Firebase auth failed: user not found", zap.String("uid", uid.String()))
+// 			return nil, errors.NotFound("User not found. Please create profile first.")
+// 		}
+// 		return nil, errors.WrapDatabase(err, "Failed to find user")
+// 	}
+
+// 	//2. JWT 생성 (UID 기반)
+// 	token, err := util.GenerateToken(user.UID, user.Nickname, user.UserRole)
+// 	if err != nil {
+// 		return nil, errors.WrapInternal(err, "Failed to generate token")
+// 	}
+
+// 	//4. 마지막 로그인 시간 업데이트
+// 	if err := s.userRepo.UpdateLastLoginAt(user.UID); err != nil {
+// 		logger.Warn("Failed to update last login time", zap.String("uid", user.UID.String()), zap.Error(err))
+// 	}
+
+// 	logger.Info("Firebase auth successful",
+// 		zap.String("uid", user.UID.String()),
+// 		zap.String("nickname", user.Nickname),
+// 	)
+
+// 	// 5. 응답
+// 	return &dto.AuthResponse{
+// 		AccessToken:  token.AccessToken,
+// 		RefreshToken: token.RefreshToken,
+// 		User:         *user,
+// 	}, nil
+// }
 
 func (s *authService) Refresh(refreshToken string) (string, error) {
 	// 1. JWT 검증

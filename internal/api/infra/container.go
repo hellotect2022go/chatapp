@@ -126,15 +126,21 @@ func (c *Container) setupStaticFiles(r *gin.Engine) {
 func (c *Container) setupAuthRoutes(api *gin.RouterGroup) {
 	auth := api.Group("/auth")
 	{
-		auth.POST("/signup", c.AuthHandler.Signup)
-		auth.POST("/login", c.AuthHandler.Login)
+		// ===== 기존 코드 (백업용 주석 처리) =====
+		// auth.POST("/signup", c.AuthHandler.Signup)
+		// auth.POST("/login", c.AuthHandler.Login)
+
+		// ⭐ Firebase 인증 가정: UID 기반 토큰 발급
+		auth.POST("/firebase", c.AuthHandler.FirebaseAuth)
+		auth.POST("/profile", c.UserHandler.CreateProfile)
+		auth.POST("/getToken", c.AuthHandler.FirebaseAuth)
 		auth.POST("/refresh", c.AuthHandler.Refresh)
 	}
 }
 
 func (c *Container) setupProtectedRoutes(api *gin.RouterGroup) {
 	protected := api.Group("")
-	//protected.Use(middleware.AuthMiddleware())
+	protected.Use(middleware.AuthMiddleware())
 	{
 		// 채팅방
 		rooms := protected.Group("/rooms")
@@ -166,7 +172,7 @@ func (c *Container) setupProtectedRoutes(api *gin.RouterGroup) {
 		{
 			users.GET("", c.UserHandler.GetUsersList)
 			users.GET("/recent", c.UserHandler.GetRecentUsers)
-			users.POST("/profile", c.UserHandler.CreateProfile)
+			// users.POST("/profile", c.UserHandler.CreateProfile)
 			users.PUT("/profile", c.UserHandler.UpdateProfile)
 		}
 	}

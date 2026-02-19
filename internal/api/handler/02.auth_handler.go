@@ -18,6 +18,8 @@ func NewAuthHandler(authService service.AuthService) *AuthHandler {
 	}
 }
 
+// ===== 기존 코드 (백업용 주석 처리) =====
+/*
 func (h *AuthHandler) Signup(c *gin.Context) {
 	var req dto.SignupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -44,6 +46,25 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// Service 호출
 	response, err := h.authService.Login(req.Email, req.Password)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(200, response)
+}
+*/
+
+// ⭐ Firebase 인증 가정: UID 기반 토큰 발급
+func (h *AuthHandler) FirebaseAuth(c *gin.Context) {
+	var req dto.FirebaseAuthRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(errors.ValidationError(err.Error()))
+		return
+	}
+
+	// Service 호출: Firebase 인증된 사용자로 토큰 발급
+	response, err := h.authService.FirebaseAuth(req.FirebaseUid, req.RefreshToken)
 	if err != nil {
 		c.Error(err)
 		return
